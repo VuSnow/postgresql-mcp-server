@@ -208,8 +208,8 @@ Environment variables (or `.env` file):
 
 | Phase | Description | Status |
 |-------|-------------|--------|
-| 1 | Project scaffold | 🔲 Not started |
-| 2 | Client layer (asyncpg) | 🔲 Not started |
+| 1 | Project scaffold | ✅ Done |
+| 2 | Client layer (asyncpg) | ✅ Done |
 | 3 | Connection manager + base service | 🔲 Not started |
 | 4 | Guardrails pipeline | 🔲 Not started |
 | 5 | Metadata service + tools | 🔲 Not started |
