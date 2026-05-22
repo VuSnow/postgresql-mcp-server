@@ -101,6 +101,16 @@ Environment variables (or `.env` file):
 | `READ_ONLY` | `true` | Only allow read/metadata operations |
 | `ALLOW_DESTRUCTIVE` | `false` | Allow truncate. Requires `READ_ONLY=false` |
 | `WRITE_ALLOWLIST` | *(unset)* | Comma-separated `schema.table` glob patterns for writes |
+| `ENABLE_WRITE_TOOLS` | `false` | Register write tools with MCP (insert/update/delete) |
+| `BLOCK_SELECT_STAR` | `true` | Reject `SELECT *` — force explicit column listing |
+| `BLOCK_SUBQUERIES` | `true` | Reject subqueries in strict mode |
+| `COLUMN_POLICY` | *(unset)* | JSON: per-table column/filter/limit policy |
+| `COLUMN_POLICY_FILE` | *(unset)* | Path to policy JSON file (takes priority over `COLUMN_POLICY`) |
+| `COLUMN_POLICY_MODE` | `permissive` | `permissive`: unlisted tables allowed. `strict`: unlisted tables rejected |
+| `ALLOWED_FUNCTIONS` | *(unset)* | JSON array of allowed SQL functions (if set, acts as allowlist) |
+| `MAX_OFFSET` | `10000` | Maximum allowed OFFSET value |
+| `DEFAULT_SCHEMA` | `public` | Default schema for unqualified table names in policy lookup |
+| `USER_CONTEXT_VARIABLE` | *(unset)* | PostgreSQL variable for RLS context (e.g. `app.current_user_id`) |
 | `DEFAULT_LIMIT` | `100` | Auto-injected LIMIT for queries without one |
 | `MAX_LIMIT` | `1000` | Maximum allowed LIMIT |
 | `MAX_QUERY_LENGTH` | `10000` | Max SQL length |
@@ -220,6 +230,315 @@ Integration tests auto-skip when the database is unavailable.
   - Graceful shutdown (pool cleanup, idempotent disconnect)
 - Total: **329 tests** (276 unit + 43 integration + 10 write integration)
 
+### Phase 10 — SQL Injection & Data Leakage Hardening 🔒
+
+> Goal: close remaining injection vectors and prevent data exfiltration. Read-only mode only prevents writes — it does NOT prevent unauthorized data access, mass leakage, or sensitive column exposure.
+
+**Threat Model for Text2SQL Agents:**
+
+```
+1. Unauthorized data access     — agent queries tables it shouldn't see
+2. Mass data leakage            — SELECT * FROM users WHERE '1'='1' dumps everything
+3. Sensitive column exposure     — password_hash, api_key, ssn returned in results
+4. Over-broad queries           — no WHERE clause on PII tables
+5. Expensive/DoS queries        — cartesian joins, full table scans, huge OFFSET
+6. System catalog probing       — pg_shadow, pg_authid reveal credentials
+```
+
+**Defense Philosophy:** Don't let Text2SQL agents query raw database freely. Enforce a **semantic layer** — curated views + column allowlist + query policy. Use **AST parsing** (sqlglot) for structural validation, regex only for auxiliary pattern detection.
+
+**Key Dependency:** `sqlglot` — SQL AST parser for reliable SELECT/FROM/WHERE/JOIN analysis. Regex is insufficient for understanding SQL structure.
+
+**Key Design Decisions:**
+- Function control: **allowlist** (not blacklist) — only explicitly allowed functions can be called
+- Table names: always normalized to `schema.table` (default schema = `public`)
+- Aggregates: `COUNT(*)` ≠ `SELECT *` — aggregates exempt from filter requirements
+- Subqueries: blocked by default in strict mode (`BLOCK_SUBQUERIES=true`)
+- EXPLAIN: allow without ANALYZE only; inner query validated by same policy
+- Unqualified columns in multi-table queries: rejected (require `table.column`)
+- LIMIT: **reject** if exceeds max (not clamp) — agent self-corrects
+
+---
+
+#### 10.1 — Read-Only Transaction Enforcement (P0)
+
+Wrap ALL `execute_query` calls in a PostgreSQL read-only transaction with timeouts:
+```python
+async with conn.transaction(readonly=True):
+    # Validate numeric, then use literal (SET does not support $1 bind params)
+    timeout_ms = int(timeout_seconds * 1000)
+    await conn.execute(f"SET LOCAL statement_timeout = '{timeout_ms}ms'")
+    await conn.execute("SET LOCAL idle_in_transaction_session_timeout = '5000ms'")
+    # Optional: RLS context
+    if user_context_variable and user_id:
+        await conn.execute(f"SET LOCAL {validated_var} = $1", user_id)
+    stmt = await conn.prepare(query, ...)
+    rows = await stmt.fetch(...)
+```
+- Engine-level guarantee — even if regex/AST is bypassed, PostgreSQL blocks writes
+- Also apply to `EXPLAIN` (when enabled). `EXPLAIN ANALYZE` is blocked by policy (10.10)
+- `USER_CONTEXT_VARIABLE` name validated with `^[a-zA-Z_][a-zA-Z0-9_.]*$`
+- Note: `SET LOCAL` uses validated literal, not `$1` bind param (PostgreSQL SET limitation)
+
+#### 10.2 — Block System Catalogs (P0, hardcoded)
+
+Always block queries referencing sensitive system tables (via AST table extraction):
+- `pg_shadow`, `pg_authid`, `pg_roles`, `pg_user`, `pg_group`
+- `pg_stat_activity`, `pg_stat_statements`, `pg_settings`
+- Direct access to `pg_catalog.*` schema in raw queries
+
+Check ALL tables in query — FROM, JOIN, subqueries. Not just the first table.
+
+Metadata tools (`list_tables`, `get_table_schema`) still access `information_schema` internally — bypass at service layer, not exposed to LLM.
+
+#### 10.3 — Block SELECT * (P0)
+
+New config: `BLOCK_SELECT_STAR` (default: `true`)
+
+```bash
+BLOCK_SELECT_STAR=true   # Force agent to list columns explicitly
+```
+
+Detect via AST (not regex):
+- `SELECT *` → blocked
+- `SELECT users.*` → blocked
+- `SELECT u.*` (alias) → blocked
+- `SELECT COUNT(*)` → **NOT blocked** (aggregate function, not column wildcard)
+- `SELECT COUNT(*), SUM(amount)` → **NOT blocked**
+
+Critical test: `SELECT COUNT(*) FROM users` must PASS.
+
+#### 10.4 — Column Policy with AST Enforcement (P0)
+
+New config: `COLUMN_POLICY` (JSON string) or `COLUMN_POLICY_FILE` (path, takes priority)
+
+```bash
+COLUMN_POLICY_FILE=/etc/mcp/column_policy.json
+# OR inline:
+COLUMN_POLICY='{"public.users": {...}}'
+```
+
+Policy format:
+```json
+{
+  "public.users": {
+    "allowed_columns": ["id", "full_name", "department", "created_at"],
+    "required_filter_columns": ["id", "full_name"],
+    "allow_aggregates_without_filter": true,
+    "group_by_columns": ["department", "created_at"],
+    "max_rows": 20
+  },
+  "public.transactions": {
+    "allowed_columns": ["id", "amount", "status", "created_at"],
+    "required_filter_columns": ["id", "account_id"],
+    "allow_aggregates_without_filter": true,
+    "group_by_columns": ["status", "created_at"],
+    "max_rows": 100
+  }
+}
+```
+
+Enforcement (via AST):
+- **Table normalization**: unqualified table → prepend `DEFAULT_SCHEMA` (default `public`). `users` → `public.users` for policy lookup.
+- Parse SELECT column list — check against `allowed_columns`
+- Check column references through **aliases**: `SELECT password_hash AS p` → blocked by source column
+- **Unqualified columns in multi-table queries**: rejected — require `table.column` or `alias.column` when JOIN is present
+- Check ALL tables in FROM/JOIN against policy
+- **Policy mode** (`COLUMN_POLICY_MODE`):
+  - `permissive` (default): tables NOT in policy → allow all (backward compatible)
+  - `strict` (recommended for production): tables NOT in policy → **rejected**
+- `required_filter_columns`: WHERE must reference at least one of these columns with a concrete value (not tautology)
+- `allow_aggregates_without_filter`: when `true`, **pure aggregate queries** skip the `required_filter_columns` check
+  - "Pure aggregate" = query where ALL selected expressions are aggregate functions (COUNT, SUM, AVG, MIN, MAX) with no row-level columns
+  - `SELECT COUNT(*) FROM users` → pass (pure aggregate)
+  - `SELECT department, COUNT(*) FROM users GROUP BY department` → pass only if `department` is in `group_by_columns`
+  - `SELECT id, COUNT(*) FROM users GROUP BY id` → **blocked** (id is row-level identifier, enables user enumeration)
+- `group_by_columns` (optional): allowed dimension columns for GROUP BY. If absent, only aggregate-only queries (no GROUP BY) pass the exception
+- `max_rows`: per-table LIMIT cap (override global `MAX_LIMIT`)
+
+This subsumes `REQUIRE_WHERE_TABLES` — no need for separate config.
+
+#### 10.5 — Tautology Detection (P1, basic)
+
+For tables with `required_filter_columns`, detect trivial WHERE clauses:
+- `WHERE '1'='1'`, `WHERE 1=1`, `WHERE true`, `WHERE TRUE`
+- `WHERE id = id` (self-reference)
+
+**Not a security boundary** — easily bypassed. But catches common LLM mistakes.
+
+Real enforcement is `required_filter_columns`: WHERE must contain a reference to an allowed filter column with a concrete value (literal or parameter), not a tautological expression.
+
+#### 10.6 — WHERE Clause Sanitization for Write Ops (P1)
+
+Validate `where_clause` parameter in UPDATE/DELETE:
+- No `;` (stacked queries)
+- No SQL comments (`--`, `/* */`)
+- No subqueries (`SELECT` keyword) — legitimate for read, but blocked for write WHERE
+- No DDL/DCL keywords
+
+Add `_validate_where_clause()` to `BaseService`.
+
+#### 10.7 — Enhanced Injection Patterns (P1)
+
+Keep regex as **auxiliary layer** (defense-in-depth, not primary):
+- System catalog probe: `\bpg_shadow\b|\bpg_authid\b`
+- Config extraction: `\bcurrent_setting\s*\(`
+- `COPY\s+(TO|FROM)` (file system access)
+- String encoding bypass: `CHR\s*\(\d+\)` chaining
+- `\bpg_advisory_lock` (DoS via lock exhaustion)
+
+#### 10.8 — Function Allowlist (P1)
+
+Replace dangerous-function blacklist with **function allowlist** (whitelist approach):
+
+```bash
+ALLOWED_FUNCTIONS='["count","sum","avg","min","max","date_trunc","coalesce","lower","upper","length","trim","substring","now","current_date","current_timestamp","extract","to_char","round","ceil","floor","abs","nullif","greatest","least","array_agg","string_agg","bool_and","bool_or","json_agg","jsonb_agg"]'
+```
+
+Enforcement:
+- Extract all function calls from AST
+- If `ALLOWED_FUNCTIONS` is configured → only those functions allowed
+- If not configured → fall back to dangerous-function blacklist (backward compatible)
+- Operators (`+`, `-`, `||`, etc.) are not functions — always allowed
+
+Default allowlist covers: aggregates, string ops, date ops, math ops, type casts, JSON aggs.
+
+#### 10.9 — Block Subqueries (P1)
+
+New config: `BLOCK_SUBQUERIES` (default: `true`)
+
+```bash
+BLOCK_SUBQUERIES=true   # Subqueries blocked in strict mode
+```
+
+- Detect subqueries in SELECT list, FROM, WHERE, HAVING
+- Reduces attack surface significantly (no nested data extraction)
+- If `false`: subqueries allowed but every referenced table/column validated against policy
+- **Note:** Set `BLOCK_SUBQUERIES=false` only when column/table policy validation is fully enabled for nested queries.
+
+#### 10.10 — EXPLAIN Safety (P1)
+
+- Allow `EXPLAIN` (plan only) — validated with same SecurityValidator on inner query
+- **Block `EXPLAIN ANALYZE`** — it executes the query, potential write/DoS vector
+- If `EXPLAIN` inner query fails policy → reject
+- In strict mode, block EXPLAIN entirely (optional: `BLOCK_EXPLAIN=false` default)
+
+#### 10.11 — Max OFFSET + LIMIT Enforcement (P0)
+
+```bash
+DEFAULT_LIMIT=100    # Auto-injected if query has no LIMIT
+MAX_LIMIT=100        # Reject if LIMIT > this value
+MAX_OFFSET=10000     # Reject if OFFSET > this value
+```
+
+Behavior:
+- No LIMIT → add `DEFAULT_LIMIT` (existing behavior)
+- LIMIT > `max_rows` (per-table policy) or `MAX_LIMIT` (global) → **reject** (not clamp)
+- OFFSET > `MAX_OFFSET` → **reject**
+- Block OFFSET entirely for tables with `required_filter_columns` (use cursor pagination instead)
+
+Note: `DEFAULT_LIMIT` and `MAX_LIMIT` already exist in configs — Phase 10 changes behavior from "clamp" to "reject" and adds per-table override via policy.
+
+#### 10.12 — User Context Support for RLS (P2)
+
+New optional config: `USER_CONTEXT_VARIABLE`
+
+```bash
+USER_CONTEXT_VARIABLE=app.current_user_id
+```
+
+Variable name validated: `^[a-zA-Z_][a-zA-Z0-9_.]*$`
+
+If set, `execute_query` tool accepts optional `user_id` parameter → `SET LOCAL` before query.
+
+#### 10.13 — Disable Write Tools by Default (P0)
+
+New config: `ENABLE_WRITE_TOOLS` (default: `false`)
+
+```bash
+ENABLE_WRITE_TOOLS=false  # Text2SQL agents should not write by default
+```
+
+When `false`: `insert_one`, `insert_many`, `update`, `delete`, `truncate_table` tools are **not registered** with MCP. They don't appear in tool list at all — not just permission-denied at runtime.
+
+This is separate from `READ_ONLY` (which is a runtime check). `ENABLE_WRITE_TOOLS` controls whether tools are exposed to the LLM.
+
+---
+
+### Recommended Database Setup (Outside MCP Scope)
+
+These are **strongly recommended** for production — not optional nice-to-haves:
+
+```sql
+-- 1. Create restricted user for MCP (NEVER use superuser)
+CREATE USER text2sql_reader WITH PASSWORD '...';
+
+-- 2. Create curated views (semantic layer)
+CREATE VIEW text2sql_users AS
+SELECT id, full_name, department, created_at FROM users;
+
+CREATE VIEW text2sql_transactions AS
+SELECT id, amount, transaction_type, status, created_at FROM transactions;
+
+-- 3. Grant only on views, NOT raw tables
+GRANT SELECT ON text2sql_users TO text2sql_reader;
+GRANT SELECT ON text2sql_transactions TO text2sql_reader;
+REVOKE ALL ON users FROM text2sql_reader;
+
+-- 4. Row-Level Security (if multi-tenant)
+ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY user_txn_policy ON transactions
+  FOR SELECT USING (owner_id = current_setting('app.current_user_id'));
+```
+
+**The MCP server MUST connect as `text2sql_reader`, not as superuser or table owner.**
+
+---
+
+#### Implementation Order
+
+**P0 — Core data-exfiltration guardrails:**
+
+| Step | Component |
+|------|-----------|
+| 1 | Add `sqlglot` dependency + new config fields |
+| 2 | Disable write tool registration — `ENABLE_WRITE_TOOLS` (10.13) |
+| 3 | AST parser module (parse SQL → extract tables, columns, functions, WHERE, LIMIT, OFFSET) |
+| 4 | Block system catalogs via AST (10.2) |
+| 5 | Block SELECT * / table.* / alias.* — preserve COUNT(*) (10.3) |
+| 6 | Table policy + schema normalization + `COLUMN_POLICY_MODE` (10.4) |
+| 7 | Column allowlist enforcement (10.4) |
+| 8 | `required_filter_columns` + pure aggregate exception + `group_by_columns` (10.4) |
+| 9 | DEFAULT_LIMIT / MAX_LIMIT reject / MAX_OFFSET reject (10.11) |
+| 10 | Read-only transaction + SET LOCAL statement_timeout (10.1) |
+| 11 | Grouped P0 tests |
+
+**P1 — Extended policy + hardening:**
+
+| Step | Component |
+|------|-----------|
+| 12 | Function allowlist — `ALLOWED_FUNCTIONS` (10.8) |
+| 13 | Block subqueries — `BLOCK_SUBQUERIES` (10.9) |
+| 14 | EXPLAIN validation — block ANALYZE (10.10) |
+| 15 | Tautology detection (10.5) |
+| 16 | WHERE clause sanitization for write ops (10.6) |
+| 17 | Auxiliary regex patterns (10.7) |
+| 18 | P1 tests |
+
+**P2 — Advanced features:**
+
+| Step | Component |
+|------|-----------|
+| 19 | User context / RLS support — `USER_CONTEXT_VARIABLE` (10.12) |
+| 20 | Documentation polish — DB setup guide, security model explanation |
+
+**Suggested default for `ALLOWED_FUNCTIONS`:**
+```
+count, sum, avg, min, max, date_trunc, coalesce, lower, upper, length, trim, substring,
+now, current_date, current_timestamp, extract, to_char, round, ceil, floor, abs, nullif,
+greatest, least, array_agg, string_agg, bool_and, bool_or, json_agg, jsonb_agg
+```
+
 ### Status Tracker
 
 | Phase | Description | Status |
@@ -233,6 +552,7 @@ Integration tests auto-skip when the database is unavailable.
 | 7 | Write service + tools | ✅ Done |
 | 8 | Delete service + tools | ✅ Done |
 | 9 | Hardening + final tests | ✅ Done |
+| 10 | SQL injection & data leakage hardening | 🔒 Planned |
 
 ## Project Structure
 
