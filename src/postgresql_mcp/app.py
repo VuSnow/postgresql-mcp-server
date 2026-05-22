@@ -3,6 +3,7 @@ import postgresql_mcp.tools.metadata
 import postgresql_mcp.tools.read  
 import postgresql_mcp.tools.create  
 import postgresql_mcp.tools.update  
+import postgresql_mcp.tools.delete  
 from postgresql_mcp.server import mcp  
 
 def main():

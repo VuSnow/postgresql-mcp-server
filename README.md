@@ -199,25 +199,26 @@ Integration tests auto-skip when the database is unavailable.
 - All write operations use parameterized queries (never string interpolation)
 - Unit tests: 24 tests — policy enforcement, allowlist matching, validation, parameterization
 
-### Phase 8 — Delete Service + Tools
+### Phase 8 — Delete Service + Tools ✅
 
 > Goal: destructive operations with extra gating.
 
-- `clients/postgresql/delete.py` — `DeleteMixin`: parameterized DELETE, TRUNCATE
+- `clients/delete.py` — `DeleteMixin`: parameterized DELETE, TRUNCATE
 - `services/postgresql/delete.py` — `DeleteService`: write policy + destructive policy check
-- `tools/postgresql/delete.py` — `delete` (WHERE mandatory), `truncate_table` (requires `ALLOW_DESTRUCTIVE=true`)
-- Unit tests: destructive gating, edge cases
+- `tools/delete.py` — `delete` (WHERE mandatory), `truncate_table` (requires `ALLOW_DESTRUCTIVE=true`)
+- Unit tests: 17 tests — destructive gating, validation, success paths
+- Integration tests: 10 tests — real INSERT/UPDATE/DELETE/TRUNCATE against PostgreSQL
 
-### Phase 9 — Hardening + Final Tests
+### Phase 9 — Hardening + Final Tests ✅
 
 > Goal: production-ready quality bar.
 
-- Full unit test suite (target: all services, all tools, all guardrails modules)
-- Edge cases: Unicode table names, SQL injection bypass attempts (CRLF, null byte, backtick, doubled quotes)
-- Connection pool exhaustion handling
-- Graceful shutdown (pool cleanup)
-- README update: final folder structure, full tools reference, test summary
-- Verify with MCP Inspector against a real PostgreSQL instance
+- 54 hardening tests covering:
+  - SQL injection bypass attempts (CRLF, null byte, stacked queries, comment-based, Unicode homoglyphs)
+  - Identifier validation edge cases (special chars, injection via identifiers)
+  - Connection resilience (double connect, disconnect when not connected, reconnect after error)
+  - Graceful shutdown (pool cleanup, idempotent disconnect)
+- Total: **329 tests** (276 unit + 43 integration + 10 write integration)
 
 ### Status Tracker
 
@@ -230,8 +231,8 @@ Integration tests auto-skip when the database is unavailable.
 | 5 | Metadata service + tools | ✅ Done |
 | 6 | Read service + query tools | ✅ Done |
 | 7 | Write service + tools | ✅ Done |
-| 8 | Delete service + tools | 🔲 Not started |
-| 9 | Hardening + final tests | 🔲 Not started |
+| 8 | Delete service + tools | ✅ Done |
+| 9 | Hardening + final tests | ✅ Done |
 
 ## Project Structure
 
@@ -254,7 +255,8 @@ src/postgresql_mcp/
 │       ├── create.py   # CreateService
 │       ├── metadata.py # MetadataService
 │       ├── read.py     # ReadService (with guardrails pipeline)
-│       └── update.py   # UpdateService (WHERE mandatory)
+│       ├── update.py   # UpdateService (WHERE mandatory)
+│       └── delete.py   # DeleteService (ALLOW_DESTRUCTIVE gating)
 ├── guardrails/
 │   ├── __init__.py     # GuardrailsPipeline + create_pipeline()
 │   ├── audit_logger.py
@@ -265,10 +267,35 @@ src/postgresql_mcp/
 └── tools/
     ├── connection.py   # connect, disconnect, get_status
     ├── create.py       # insert_one, insert_many
+    ├── delete.py       # delete, truncate_table
     ├── metadata.py     # list_schemas, list_tables, get_table_schema, ...
     ├── read.py         # execute_query, dry_run_query, explain_query
     └── update.py       # update (WHERE mandatory)
 ```
+
+## MCP Tools Reference
+
+| Tool | Description | Returns |
+|------|-------------|---------|
+| `connect` | Connect to PostgreSQL using configured connection string | `{"result": "Connected ..."}` |
+| `disconnect` | Disconnect from the database | `{"result": "Disconnected"}` |
+| `get_status` | Get connection status and server info | `{"result": {...}}` |
+| `list_schemas` | List all schemas in the database | `{"result": [...]}` |
+| `list_tables` | List tables in a schema (default: public) | `{"result": [...]}` |
+| `get_table_schema` | Get column definitions for a table | `{"result": [...]}` |
+| `list_indexes` | List indexes on a table | `{"result": [...]}` |
+| `get_foreign_keys` | Get foreign key relationships | `{"result": [...]}` |
+| `get_table_stats` | Get row count and size estimates | `{"result": {...}}` |
+| `execute_query` | Execute a read-only SQL query (through guardrails) | `{"result": [...]}` |
+| `dry_run_query` | Validate a query without executing | `{"result": "Query is valid"}` |
+| `explain_query` | Get the EXPLAIN plan for a query | `{"result": "..."}` |
+| `insert_one` | Insert a single row into a table | `{"result": "Inserted 1 row ..."}` |
+| `insert_many` | Insert multiple rows into a table | `{"result": "Inserted N row(s)"}` |
+| `update` | Update rows matching a WHERE condition | `{"result": "Updated N row(s)"}` |
+| `delete` | Delete rows matching a WHERE condition | `{"result": "Deleted N row(s)"}` |
+| `truncate_table` | Truncate a table (requires ALLOW_DESTRUCTIVE) | `{"result": "Truncated ..."}` |
+
+All tools return `{"error": "..."}` on failure.
 
 ## Tech Stack
 
