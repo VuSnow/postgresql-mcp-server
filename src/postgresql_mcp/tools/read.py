@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 @mcp.tool()
-async def execute_query(query: str) -> str:
+async def execute_query(query: str) -> dict:
     """Execute a SQL query and return results.
 
     The query passes through a security pipeline:
@@ -29,14 +29,14 @@ async def execute_query(query: str) -> str:
     Only SELECT queries are allowed in read-only mode.
     """
     try:
-        return await read_service.execute_query(query)
+        return {"result": await read_service.execute_query(query)}
     except Exception as e:
         logger.error(f"[tool] execute_query error: {e}")
-        return f"Error: {e}"
+        return {"error": str(e)}
 
 
 @mcp.tool()
-async def dry_run_query(query: str) -> str:
+async def dry_run_query(query: str) -> dict:
     """Validate a SQL query without executing it.
 
     Runs security checks only — no rate limit consumed, no data returned.
@@ -48,10 +48,10 @@ async def dry_run_query(query: str) -> str:
     Returns whether the query passes security validation.
     """
     try:
-        return await read_service.dry_run_query(query)
+        return {"result": await read_service.dry_run_query(query)}
     except Exception as e:
         logger.error(f"[tool] dry_run_query error: {e}")
-        return f"Error: {e}"
+        return {"error": str(e)}
 
 
 @mcp.tool()
@@ -59,7 +59,7 @@ async def explain_query(
     query: str,
     analyze: bool = False,
     format: str = "text",
-) -> str:
+) -> dict:
     """Get the execution plan for a SQL query.
 
     Args:
@@ -73,7 +73,7 @@ async def explain_query(
     Useful for optimizing slow queries.
     """
     try:
-        return await read_service.explain_query(query, analyze=analyze, format=format)
+        return {"result": await read_service.explain_query(query, analyze=analyze, format=format)}
     except Exception as e:
         logger.error(f"[tool] explain_query error: {e}")
-        return f"Error: {e}"
+        return {"error": str(e)}

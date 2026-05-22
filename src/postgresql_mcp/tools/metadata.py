@@ -1,7 +1,7 @@
 """
 MCP Tools — Database metadata exploration.
 
-All tools return LLM-friendly formatted strings.
+All tools return structured dicts with 'result' or 'error' keys.
 """
 
 import logging
@@ -12,21 +12,21 @@ logger = logging.getLogger(__name__)
 
 
 @mcp.tool()
-async def list_schemas() -> str:
+async def list_schemas() -> dict:
     """List all non-system schemas in the database.
 
     Returns schema names with count. Use this to discover what schemas
     are available before exploring tables.
     """
     try:
-        return await metadata_service.list_schemas()
+        return {"result": await metadata_service.list_schemas()}
     except Exception as e:
         logger.error(f"[tool] list_schemas error: {e}")
-        return f"Error: {e}"
+        return {"error": str(e)}
 
 
 @mcp.tool()
-async def list_tables(schema: str = "public") -> str:
+async def list_tables(schema: str = "public") -> dict:
     """List all tables in a schema with their type and estimated row count.
 
     Args:
@@ -35,14 +35,14 @@ async def list_tables(schema: str = "public") -> str:
     Returns table names, types (BASE TABLE/VIEW), and estimated row counts.
     """
     try:
-        return await metadata_service.list_tables(schema)
+        return {"result": await metadata_service.list_tables(schema)}
     except Exception as e:
         logger.error(f"[tool] list_tables error: {e}")
-        return f"Error: {e}"
+        return {"error": str(e)}
 
 
 @mcp.tool()
-async def get_table_schema(table_name: str, schema: str = "public") -> str:
+async def get_table_schema(table_name: str, schema: str = "public") -> dict:
     """Get the column definitions for a table.
 
     Args:
@@ -53,14 +53,14 @@ async def get_table_schema(table_name: str, schema: str = "public") -> str:
     Use this to understand table structure before writing queries.
     """
     try:
-        return await metadata_service.get_table_schema(table_name, schema)
+        return {"result": await metadata_service.get_table_schema(table_name, schema)}
     except Exception as e:
         logger.error(f"[tool] get_table_schema error: {e}")
-        return f"Error: {e}"
+        return {"error": str(e)}
 
 
 @mcp.tool()
-async def get_indexes(table_name: str, schema: str = "public") -> str:
+async def get_indexes(table_name: str, schema: str = "public") -> dict:
     """List all indexes on a table.
 
     Args:
@@ -71,14 +71,14 @@ async def get_indexes(table_name: str, schema: str = "public") -> str:
     Useful for understanding query performance characteristics.
     """
     try:
-        return await metadata_service.get_indexes(table_name, schema)
+        return {"result": await metadata_service.get_indexes(table_name, schema)}
     except Exception as e:
         logger.error(f"[tool] get_indexes error: {e}")
-        return f"Error: {e}"
+        return {"error": str(e)}
 
 
 @mcp.tool()
-async def get_constraints(table_name: str, schema: str = "public") -> str:
+async def get_constraints(table_name: str, schema: str = "public") -> dict:
     """List all constraints on a table (PK, FK, UNIQUE, CHECK).
 
     Args:
@@ -89,10 +89,10 @@ async def get_constraints(table_name: str, schema: str = "public") -> str:
     Useful for understanding table relationships.
     """
     try:
-        return await metadata_service.get_constraints(table_name, schema)
+        return {"result": await metadata_service.get_constraints(table_name, schema)}
     except Exception as e:
         logger.error(f"[tool] get_constraints error: {e}")
-        return f"Error: {e}"
+        return {"error": str(e)}
 
 
 @mcp.tool()
@@ -101,7 +101,7 @@ async def get_column_values(
     column: str,
     schema: str = "public",
     limit: int = 50,
-) -> str:
+) -> dict:
     """Get distinct non-null values for a column.
 
     Args:
@@ -114,7 +114,7 @@ async def get_column_values(
     filter values before writing queries.
     """
     try:
-        return await metadata_service.get_column_values(table_name, column, schema, limit)
+        return {"result": await metadata_service.get_column_values(table_name, column, schema, limit)}
     except Exception as e:
         logger.error(f"[tool] get_column_values error: {e}")
-        return f"Error: {e}"
+        return {"error": str(e)}

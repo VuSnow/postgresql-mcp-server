@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 @mcp.tool()
-async def connect() -> str:
+async def connect() -> dict:
     """Connect to the PostgreSQL database.
 
     Establishes connection pool. Safe to call multiple times —
@@ -20,37 +20,35 @@ async def connect() -> str:
     """
     try:
         await connection_manager.connect()
-        return "Connected to PostgreSQL."
+        return {"result": "Connected to PostgreSQL."}
     except Exception as e:
         logger.error(f"[tool] connect error: {e}")
-        return f"Connection failed: {e}"
+        return {"error": f"Connection failed: {e}"}
 
 
 @mcp.tool()
-async def disconnect() -> str:
+async def disconnect() -> dict:
     """Disconnect from the PostgreSQL database.
 
     Closes the connection pool. Safe to call if already disconnected.
     """
     try:
         await connection_manager.disconnect()
-        return "Disconnected."
+        return {"result": "Disconnected."}
     except Exception as e:
         logger.error(f"[tool] disconnect error: {e}")
-        return f"Disconnect failed: {e}"
+        return {"error": f"Disconnect failed: {e}"}
 
 
 @mcp.tool()
-async def get_status() -> str:
+async def get_status() -> dict:
     """Get the current connection status.
 
     Returns state (disconnected/connecting/connected/error) and
     last error message if any.
     """
     status = connection_manager.get_status()
-    lines = [
-        f"State: {status['state']}",
-    ]
+    result = {"state": status["state"]}
     if status["last_error"]:
-        lines.append(f"Last error: {status['last_error']}")
-    return "\n".join(lines)
+        result["last_error"] = status["last_error"]
+    return {"result": result}
