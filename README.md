@@ -110,37 +110,52 @@ Environment variables (or `.env` file):
 | `PII_RULES` | *(unset)* | JSON array: `[{"column":"email","method":"hash"}]` |
 | `LOG_LEVEL` | `INFO` | Logging level |
 
+## Testing
+
+```bash
+# Unit tests only (no DB required)
+pytest
+
+# Integration tests (requires running PostgreSQL)
+POSTGRESQL_CONNECTION_STRING="postgresql://user:pass@localhost:5432/dbname" pytest -m integration
+
+# All tests
+POSTGRESQL_CONNECTION_STRING="postgresql://user:pass@localhost:5432/dbname" pytest
+```
+
+Integration tests auto-skip when the database is unavailable.
+
 ## Implementation Plan
 
-### Phase 1 — Project Scaffold
+### Phase 1 — Project Scaffold ✅
 
 > Goal: runnable FastMCP server with `get_status` tool, zero PostgreSQL logic yet.
 
 - `pyproject.toml` — deps: `fastmcp`, `asyncpg`, `pydantic-settings`, dev: `pytest`, `pytest-asyncio`
-- `src/postgresql_mcp/server.py` — FastMCP instance
+- `src/postgresql_mcp/app.py` — FastMCP entry point
 - `src/postgresql_mcp/configs.py` — pydantic-settings model (all env vars above)
 - `.env.example`, `pytest.ini`, `.gitignore`
-- Verify: `fastmcp dev src/postgresql_mcp/server.py:mcp` starts without error
+- Verify: `fastmcp dev src/postgresql_mcp/app.py:mcp` starts without error
 
-### Phase 2 — Client Layer (asyncpg)
+### Phase 2 — Client Layer (asyncpg) ✅
 
 > Goal: pure database calls, no business logic. Mixin composition pattern.
 
-- `clients/postgresql/base.py` — `BasePostgreSQLClient`: create pool, close, ping
-- `clients/postgresql/metadata.py` — `MetadataMixin`: list_schemas, list_tables, get_table_schema, get_indexes, get_constraints, get_column_values (all via `information_schema` / `pg_catalog` queries)
-- `clients/postgresql/read.py` — `ReadMixin`: execute_query (raw), explain_query
-- `clients/postgresql/__init__.py` — `PostgreSQLClient(BasePostgreSQLClient, MetadataMixin, ReadMixin)`
-- Unit tests: mock `asyncpg.Pool`, verify SQL correctness
+- `clients/base.py` — `BasePostgreSQLClient`: create pool, close, ping
+- `clients/metadata.py` — `MetadataMixin`: list_schemas, list_tables, get_table_schema, get_indexes, get_constraints, get_column_values (all via `information_schema` / `pg_catalog` queries)
+- `clients/read.py` — `ReadMixin`: execute_query (raw), explain_query
+- `clients/utils.py` — `validate_identifier()` for SQL identifier safety
+- `clients/__init__.py` — `PostgreSQLClient(BasePostgreSQLClient, MetadataMixin, ReadMixin)`
 
-### Phase 3 — Connection Manager + Base Service
+### Phase 3 — Connection Manager + Base Service ✅
 
 > Goal: singleton lifecycle management, auto-connect, input validation.
 
 - `services/connection_manager.py` — state machine: `disconnected → connecting → connected → error`. Lazy pool creation, health check, reconnect
-- `services/postgresql/base.py` — `BaseService`: `ensure_connected()`, `_validate_table_name()`, `_check_write_allowed()`, `_check_destructive_allowed()`, `_check_write_target()`
-- Unit tests: state transitions, validation edge cases
+- `services/postgresql/base.py` — `BaseService`: `ensure_connected()`, `_validate_identifier()`, `_validate_table_name()`, `_check_write_allowed()`, `_check_destructive_allowed()`, `_check_write_target()`
+- Unit tests: 36 tests — state transitions, validation edge cases, write policy enforcement (all passing)
 
-### Phase 4 — Guardrails Pipeline
+### Phase 4 — Guardrails Pipeline ✅
 
 > Goal: production security layer. Each module is independent and testable in isolation.
 
@@ -152,7 +167,7 @@ Environment variables (or `.env` file):
 - `guardrails/__init__.py` — `GuardrailsPipeline`: orchestrates pre-execute → execute → post-execute
 - Unit tests: **heavy coverage** — injection bypass attempts, edge cases, concurrent rate limiting
 
-### Phase 5 — Metadata Service + Tools
+### Phase 5 — Metadata Service + Tools ✅
 
 > Goal: first usable tools — agent can explore database structure.
 
@@ -162,7 +177,7 @@ Environment variables (or `.env` file):
 - All tools return LLM-friendly strings (not raw dicts)
 - Unit tests: service logic + tool output formatting
 
-### Phase 6 — Read Service + Query Tools
+### Phase 6 — Read Service + Query Tools ✅
 
 > Goal: agent can execute SQL with full guardrails pipeline.
 
@@ -210,13 +225,44 @@ Environment variables (or `.env` file):
 |-------|-------------|--------|
 | 1 | Project scaffold | ✅ Done |
 | 2 | Client layer (asyncpg) | ✅ Done |
-| 3 | Connection manager + base service | 🔲 Not started |
-| 4 | Guardrails pipeline | 🔲 Not started |
-| 5 | Metadata service + tools | 🔲 Not started |
-| 6 | Read service + query tools | 🔲 Not started |
+| 3 | Connection manager + base service | ✅ Done |
+| 4 | Guardrails pipeline | ✅ Done |
+| 5 | Metadata service + tools | ✅ Done |
+| 6 | Read service + query tools | ✅ Done |
 | 7 | Write service + tools | 🔲 Not started |
 | 8 | Delete service + tools | 🔲 Not started |
 | 9 | Hardening + final tests | 🔲 Not started |
+
+## Project Structure
+
+```
+src/postgresql_mcp/
+├── app.py              # Entry point — imports tools, exposes mcp
+├── server.py           # Shared state — mcp instance, configs, services
+├── configs.py          # Pydantic-settings (env vars)
+├── clients/
+│   ├── base.py         # BasePostgreSQLClient — pool lifecycle
+│   ├── metadata.py     # MetadataMixin — schema/table/index queries
+│   ├── read.py         # ReadMixin — raw execute, explain
+│   └── utils.py        # validate_identifier()
+├── services/
+│   ├── connection_manager.py  # Singleton state machine
+│   └── postgresql/
+│       ├── base.py     # BaseService — validation + write policy
+│       ├── metadata.py # MetadataService
+│       └── read.py     # ReadService (with guardrails pipeline)
+├── guardrails/
+│   ├── __init__.py     # GuardrailsPipeline + create_pipeline()
+│   ├── audit_logger.py
+│   ├── pii_masker.py
+│   ├── query_rewriter.py
+│   ├── rate_limiter.py
+│   └── security_validator.py
+└── tools/
+    ├── connection.py   # connect, disconnect, get_status
+    ├── metadata.py     # list_schemas, list_tables, get_table_schema, ...
+    └── read.py         # execute_query, dry_run_query, explain_query
+```
 
 ## Tech Stack
 
@@ -235,13 +281,13 @@ pip install -e ".[dev]"
 export POSTGRESQL_CONNECTION_STRING="postgresql://user:password@localhost:5432/mydb"
 
 # Run
-fastmcp run src/postgresql_mcp/server.py:mcp
+fastmcp run src/postgresql_mcp/app.py:mcp
 
 # Dev UI
-fastmcp dev src/postgresql_mcp/server.py:mcp
+fastmcp dev src/postgresql_mcp/app.py:mcp
 
 # MCP Inspector
-npx @modelcontextprotocol/inspector fastmcp run src/postgresql_mcp/server.py:mcp
+npx @modelcontextprotocol/inspector fastmcp run src/postgresql_mcp/app.py:mcp
 ```
 
 ## License

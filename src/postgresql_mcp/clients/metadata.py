@@ -1,7 +1,7 @@
 import logging
 import asyncpg
 from typing import Any
-from utils import validate_identifier
+from postgresql_mcp.clients.utils import validate_identifier
 
 logger = logging.getLogger(__name__)
 

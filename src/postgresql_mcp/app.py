@@ -1,10 +1,11 @@
-from fastmcp import FastMCP
+import postgresql_mcp.tools.connection 
+import postgresql_mcp.tools.metadata  
+import postgresql_mcp.tools.read  
+from postgresql_mcp.server import mcp  
 
-mcp = FastMCP(
-    name="PostgreSQL MCP Server",
-    instructions=(
-        "You are a PostgreSQL assistant. Use the available tools to help users "
-        "interact with their PostgreSQL databases — querying data, inspecting "
-        "schema structure, and managing database operations."
-    ),
-)
+def main():
+    """Entry point for running the server."""
+    mcp.run()
+
+if __name__ == "__main__":
+    main()
