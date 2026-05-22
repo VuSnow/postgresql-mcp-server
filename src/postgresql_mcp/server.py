@@ -11,6 +11,8 @@ from postgresql_mcp.guardrails import create_pipeline
 from postgresql_mcp.services.connection_manager import ConnectionManager
 from postgresql_mcp.services.postgresql.metadata import MetadataService
 from postgresql_mcp.services.postgresql.read import ReadService
+from postgresql_mcp.services.postgresql.create import CreateService
+from postgresql_mcp.services.postgresql.update import UpdateService
 
 mcp = FastMCP(
     name="PostgreSQL MCP Server",
@@ -38,3 +40,5 @@ pipeline = create_pipeline(
     pii_rules_json=configs.pii_rules,
 )
 read_service = ReadService(connection_manager, configs, pipeline)
+create_service = CreateService(connection_manager, configs)
+update_service = UpdateService(connection_manager, configs)
