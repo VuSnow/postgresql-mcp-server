@@ -186,18 +186,18 @@ Integration tests auto-skip when the database is unavailable.
 - `dry_run_query` only applies SecurityValidator (no rewrite/PII since no data returned)
 - Unit tests: end-to-end pipeline, timeout handling, error formatting
 
-### Phase 7 — Write Service + Tools
+### Phase 7 — Write Service + Tools ✅
 
 > Goal: opt-in write support with safety constraints.
 
-- `clients/postgresql/create.py` — `CreateMixin`: parameterized INSERT (single + batch)
-- `clients/postgresql/update.py` — `UpdateMixin`: parameterized UPDATE
+- `clients/create.py` — `CreateMixin`: parameterized INSERT (single + batch)
+- `clients/update.py` — `UpdateMixin`: parameterized UPDATE
 - `services/postgresql/create.py` — `CreateService`: write policy check → delegate
 - `services/postgresql/update.py` — `UpdateService`: write policy check, **require WHERE clause**
-- `tools/postgresql/create.py` — `insert_one`, `insert_many`
-- `tools/postgresql/update.py` — `update` (WHERE mandatory — no accidental full-table updates)
+- `tools/create.py` — `insert_one`, `insert_many`
+- `tools/update.py` — `update` (WHERE mandatory — no accidental full-table updates)
 - All write operations use parameterized queries (never string interpolation)
-- Unit tests: policy enforcement, allowlist matching, parameterization
+- Unit tests: 24 tests — policy enforcement, allowlist matching, validation, parameterization
 
 ### Phase 8 — Delete Service + Tools
 
@@ -229,7 +229,7 @@ Integration tests auto-skip when the database is unavailable.
 | 4 | Guardrails pipeline | ✅ Done |
 | 5 | Metadata service + tools | ✅ Done |
 | 6 | Read service + query tools | ✅ Done |
-| 7 | Write service + tools | 🔲 Not started |
+| 7 | Write service + tools | ✅ Done |
 | 8 | Delete service + tools | 🔲 Not started |
 | 9 | Hardening + final tests | 🔲 Not started |
 
@@ -242,15 +242,19 @@ src/postgresql_mcp/
 ├── configs.py          # Pydantic-settings (env vars)
 ├── clients/
 │   ├── base.py         # BasePostgreSQLClient — pool lifecycle
+│   ├── create.py       # CreateMixin — parameterized INSERT
 │   ├── metadata.py     # MetadataMixin — schema/table/index queries
 │   ├── read.py         # ReadMixin — raw execute, explain
+│   ├── update.py       # UpdateMixin — parameterized UPDATE
 │   └── utils.py        # validate_identifier()
 ├── services/
 │   ├── connection_manager.py  # Singleton state machine
 │   └── postgresql/
 │       ├── base.py     # BaseService — validation + write policy
+│       ├── create.py   # CreateService
 │       ├── metadata.py # MetadataService
-│       └── read.py     # ReadService (with guardrails pipeline)
+│       ├── read.py     # ReadService (with guardrails pipeline)
+│       └── update.py   # UpdateService (WHERE mandatory)
 ├── guardrails/
 │   ├── __init__.py     # GuardrailsPipeline + create_pipeline()
 │   ├── audit_logger.py
@@ -260,8 +264,10 @@ src/postgresql_mcp/
 │   └── security_validator.py
 └── tools/
     ├── connection.py   # connect, disconnect, get_status
+    ├── create.py       # insert_one, insert_many
     ├── metadata.py     # list_schemas, list_tables, get_table_schema, ...
-    └── read.py         # execute_query, dry_run_query, explain_query
+    ├── read.py         # execute_query, dry_run_query, explain_query
+    └── update.py       # update (WHERE mandatory)
 ```
 
 ## Tech Stack
