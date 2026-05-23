@@ -79,14 +79,22 @@ Environment variables (or `.env` file):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `SECURITY_PROFILE` | `general` | Security mode: `general` (permissive), `text2sql` (strict), `sensitive` (strict + require policy file) |
 | `ENABLE_WRITE_TOOLS` | `false` | Register write tools with MCP (insert/update/delete) |
 | `BLOCK_SELECT_STAR` | `true` | Reject `SELECT *` — force explicit column listing |
-| `BLOCK_SUBQUERIES` | `true` | Reject subqueries in strict mode |
-| `COLUMN_POLICY` | *(unset)* | JSON: per-table column/filter/limit policy |
+| `BLOCK_SUBQUERIES` | `true` | Reject subqueries (all profiles default) |
+| `ALLOW_CTE` | `false` | Allow CTE (`WITH`) queries. Ignored until CTE body validation is implemented |
+| `ALLOW_SET_OPERATIONS` | `false` | Allow UNION/INTERSECT/EXCEPT. Same safety interlock as CTE |
+| `ALLOW_RECURSIVE_CTE` | `false` | Allow recursive CTE. Requires `ALLOW_CTE=true` |
+| `COLUMN_POLICY` | *(unset)* | JSON: per-table column/filter/limit policy (includes `sampleable_columns`) |
 | `COLUMN_POLICY_FILE` | *(unset)* | Path to policy JSON file (takes priority over `COLUMN_POLICY`) |
-| `COLUMN_POLICY_MODE` | `permissive` | `permissive`: unlisted tables allowed. `strict`: unlisted tables rejected |
-| `ALLOWED_FUNCTIONS` | *(unset)* | JSON array of allowed SQL functions (if set, acts as allowlist) |
+| `COLUMN_POLICY_MODE` | `permissive` | `permissive`: unlisted tables allowed. `strict`: unlisted tables rejected. Auto-set by `SECURITY_PROFILE` |
+| `ALLOWED_FUNCTIONS` | *(unset)* | JSON array of allowed SQL functions. P0 for text2sql/sensitive (allowlist), P1 for general (blacklist fallback) |
 | `MAX_OFFSET` | `10000` | Maximum allowed OFFSET value |
+| `MAX_RESULT_ROWS` | `100` | Hard cap on rows returned (post-execute fallback) |
+| `MAX_RESULT_BYTES` | `1048576` | Max total serialized result size (1MB) |
+| `MAX_CELL_LENGTH` | `4096` | Truncate individual cell values exceeding this |
+| `MAX_COLUMNS_RETURNED` | `50` | Reject query if SELECT has too many columns |
 | `DEFAULT_SCHEMA` | `public` | Default schema for unqualified table names in policy lookup |
 | `USER_CONTEXT_VARIABLE` | *(unset)* | PostgreSQL variable for RLS context (e.g. `app.current_user_id`) |
 
