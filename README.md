@@ -1,22 +1,30 @@
 # PostgreSQL-MCP-Server
 
-FastMCP-based PostgreSQL MCP server for schema inspection, metadata retrieval, and safe query execution by AI agents.
+Secure, production-hardened PostgreSQL MCP server for AI agents — with AST-based SQL validation, column-level access policy, critical pattern blocking, and defense-in-depth guardrails.
 
 ## Overview
 
-`postgresql-mcp-server` is a Python MCP server built with [FastMCP](https://github.com/PrefectHQ/fastmcp) that exposes PostgreSQL operations as MCP tools. Designed as the **data access layer** for Text2SQL agents and AI data workflows.
+`postgresql-mcp-server` is a Python MCP server built with [FastMCP](https://github.com/PrefectHQ/fastmcp) that exposes PostgreSQL operations as MCP tools. Designed as the **secure data access layer** for Text2SQL agents and AI data workflows.
 
 An AI agent connects to this MCP server and can:
 
-1. **Explore the database** — list schemas, tables, columns, indexes, constraints
-2. **Run safe queries** — execute SELECT with guardrails (injection protection, auto LIMIT, PII masking)
+1. **Explore the database** — list schemas, tables, columns, indexes, constraints (policy-filtered)
+2. **Run safe queries** — execute SELECT with multi-layer guardrails (AST validation, column policy, injection blocking, result budget, PII masking)
 3. **Write data (opt-in)** — insert, update, delete with write allowlist and destructive-op gating
+
+### Security Highlights
+
+- **AST-based validation** via `sqlglot` — structural analysis, not just regex
+- **Column-level access policy** — allowlist per table, required filters, sampleable columns
+- **Critical pattern blocking** — pg_read_file, lo_export, dblink, advisory locks, dollar-quoting
+- **3 security profiles** — `general` (permissive), `text2sql` (strict), `sensitive` (strict + require policy)
+- **Defense-in-depth** — DB privileges → AST validation → post-execute budget → PII masking
+- **711 unit tests** covering all guardrail layers
 
 All operations go through a security pipeline. Read-only by default. No raw database access.
 
-> **Status:** Production-ready security hardening complete.
-> Phase 10 (AST-based security with `sqlglot`, column policy, critical pattern blocking) is fully implemented.
-> 711 unit tests, 0 failures. See [Implementation Plan](docs/PLAN.md) for details.
+> **Status:** Production-ready. Phase 10 security hardening fully implemented.
+> See [Implementation Plan](docs/PLAN.md) for details.
 
 ## Documentation
 
