@@ -78,9 +78,37 @@ _check_write_target()          → WRITE_ALLOWLIST match? (schema.table glob)
 6. System catalog probing       — pg_shadow, pg_authid reveal credentials
 ```
 
+### Security Profiles
+
+```bash
+SECURITY_PROFILE=general | text2sql | sensitive
+```
+
+| Profile | COLUMN_POLICY_MODE | Metadata filtering | Require policy file | Notes |
+|---------|-------------------|-------------------|--------------------|---------|
+| `general` (default) | permissive | off | no | Backward compatible, demo/learning |
+| `text2sql` | strict | on | recommended | Text2SQL agents, analytics |
+| `sensitive` | strict | on | **required** | Banking, PII, production |
+
+All profiles default to `ALLOW_CTE=false` and `BLOCK_SUBQUERIES=true`. Individual configs can be overridden explicitly.
+
 ### Defense Philosophy
 
 Don't let Text2SQL agents query raw database freely. Enforce a **semantic layer** — curated views + column allowlist + query policy. Use **AST parsing** (sqlglot) for structural validation, regex only for auxiliary pattern detection.
+
+### Defense-in-Depth Ordering
+
+```
+DB privilege / views / RLS          ← PRIMARY security boundary
+  → Read-only transaction           ← Engine-level write safety (NOT data-leakage control)
+    → AST table + column policy     ← Structural query validation
+      → Required filter + LIMIT     ← Mass-leakage prevention
+        → Execute query
+          → PII masking             ← FALLBACK ONLY (data already left DB)
+            → Audit log
+```
+
+**Important:** Read-only transaction only prevents writes. It does NOT prevent SELECT leakage, catalog probing, or access to sensitive tables if DB privilege allows it. PII masking is NOT a security boundary — it's best-effort post-execute redaction.
 
 ### Key Design Decisions
 
@@ -94,17 +122,20 @@ Don't let Text2SQL agents query raw database freely. Enforce a **semantic layer*
 
 ### Defense Layers
 
-| Layer | What | Enforced By |
-|-------|------|-------------|
-| Read-only transaction | PostgreSQL blocks writes at engine level | asyncpg `transaction(readonly=True)` |
-| System catalog blocking | Prevent credential/config leakage | AST table extraction |
-| Block SELECT * | Force explicit column selection | AST star detection |
-| Column policy | Only allowed columns returned | AST column extraction |
-| Required filter columns | Prevent mass data dumps | AST WHERE analysis |
-| Function allowlist | Block dangerous functions | AST function extraction |
-| LIMIT/OFFSET enforcement | Cap result size | AST + reject policy |
-| Statement timeout | Prevent DoS queries | `SET LOCAL statement_timeout` |
-| PII masking | Redact sensitive column values | Post-execute column match |
+| Layer | What | Enforced By | Scope |
+|-------|------|-------------|-------|
+| Read-only transaction | PostgreSQL blocks writes at engine level | asyncpg `transaction(readonly=True)` | Write safety only |
+| Single statement + shape validation | Only supported SQL shapes pass | AST structural check | P0 |
+| System catalog blocking | Prevent credential/config leakage | AST table extraction | P0 |
+| Block SELECT * | Force explicit column selection | AST star detection | P0 |
+| Column policy | Only allowed columns returned | AST column extraction | P0 |
+| Required filter columns | Prevent mass data dumps | AST WHERE analysis | P0 |
+| Metadata tools policy | Filter schema/table/column visibility | Policy-aware service layer | P0 |
+| Function allowlist | Block dangerous functions | AST function extraction | P0 (text2sql/sensitive), P1 (general) |
+| LIMIT/OFFSET enforcement | Cap result size | AST + reject policy | P0 |
+| Result budget | Cap output volume | Post-execute size check | P0 |
+| Statement timeout | Prevent DoS queries | `SET LOCAL statement_timeout` | P0 |
+| PII masking | Redact sensitive column values (fallback) | Post-execute column match | Fallback |
 
 ### Column Policy
 
@@ -114,6 +145,7 @@ Per-table policy controlling what the agent can access:
 {
   "public.users": {
     "allowed_columns": ["id", "full_name", "department", "created_at"],
+    "sampleable_columns": ["department"],
     "required_filter_columns": ["id", "full_name"],
     "allow_aggregates_without_filter": true,
     "group_by_columns": ["department", "created_at"],
@@ -122,9 +154,15 @@ Per-table policy controlling what the agent can access:
 }
 ```
 
+**Field semantics:**
+- `allowed_columns`: columns that may appear in SELECT/WHERE of `execute_query`
+- `sampleable_columns`: columns allowed for `get_column_values` (distinct value enumeration). Subset of `allowed_columns`. Typically dimension/enum columns only — NEVER PII.
+- `required_filter_columns`: WHERE must reference at least one with a concrete value
+- `max_rows`: per-table LIMIT cap
+
 **Policy modes:**
 - `permissive` (default): tables NOT in policy → allow all (backward compatible)
-- `strict` (recommended for production): tables NOT in policy → rejected
+- `strict` (recommended for text2sql/sensitive): tables NOT in policy → rejected
 
 **Aggregate exception:**
 - "Pure aggregate" = query where ALL selected expressions are aggregate functions with no row-level columns
@@ -132,25 +170,96 @@ Per-table policy controlling what the agent can access:
 - `SELECT department, COUNT(*) FROM users GROUP BY department` → pass only if `department` is in `group_by_columns`
 - `SELECT id, COUNT(*) FROM users GROUP BY id` → blocked (row-level identifier)
 
-### Recommended Database Setup
+### Metadata Tools Policy
 
-These are **strongly recommended** for production — not optional nice-to-haves:
+In `text2sql` / `sensitive` profile (or when `COLUMN_POLICY_MODE=strict`):
+
+| Tool | Behavior |
+|------|----------|
+| `list_tables` | Only return tables/views present in column policy |
+| `get_table_schema` | Only return `allowed_columns`, hide unlisted columns |
+| `get_indexes` / `get_constraints` | Only for policy tables |
+| `get_column_values` | Only for `sampleable_columns` (NOT `allowed_columns`) |
+
+Rationale: if only `execute_query` is guarded, the agent can still learn sensitive schema structure via metadata tools. In banking, knowing a table `fraud_flags` or `blacklist_accounts` exists is already information disclosure.
+
+**In `general` profile:** metadata tools operate without filtering (backward compatible).
+
+### Supported SQL Shapes
+
+By default, only these query shapes are allowed through `execute_query`:
+
+| Shape | Default | Config |
+|-------|---------|--------|
+| Simple SELECT | ✅ allowed | — |
+| SELECT with JOIN | ✅ allowed | — |
+| GROUP BY / ORDER BY / HAVING | ✅ allowed | — |
+| CTE (`WITH ... SELECT`) | ❌ blocked | `ALLOW_CTE=true` |
+| UNION / INTERSECT / EXCEPT | ❌ blocked | `ALLOW_SET_OPERATIONS=true` |
+| Recursive CTE | ❌ blocked | `ALLOW_RECURSIVE_CTE=true` |
+| LATERAL | ❌ blocked | — |
+| SELECT INTO | ❌ blocked | — |
+| COPY / DO / CALL | ❌ blocked | — |
+| Multiple statements (`;`) | ❌ blocked | — |
+
+**CTE validation rules** (when `ALLOW_CTE=true`):
+- Every CTE body validated as a normal SELECT (same table/column policy)
+- Source tables/columns extracted from CTE body, not CTE alias
+- CTE alias is NOT treated as a policy target
+- Recursive CTE blocked unless `ALLOW_RECURSIVE_CTE=true`
+
+**Safety interlock:** `ALLOW_CTE=true` is only honored when full CTE body validation is implemented. Until then, CTE is hard-disabled regardless of config.
+
+This prevents bypass like:
+```sql
+WITH leak AS (SELECT password_hash FROM users)
+SELECT * FROM leak;
+```
+Outer query sees `leak`, but validator traces to `users.password_hash` → blocked.
+
+### Result Budget
+
+Even with column policy and LIMIT, a query can return excessive data if rows are wide or contain large text/JSON:
+
+```bash
+MAX_RESULT_ROWS=100        # Hard cap on rows returned
+MAX_RESULT_BYTES=1048576   # 1MB max total result size
+MAX_CELL_LENGTH=4096       # Truncate individual cell values
+MAX_COLUMNS_RETURNED=50    # Reject if SELECT has too many columns
+```
+
+**Output size control has two layers:**
+1. **Pre-execute (primary):** LIMIT enforcement via AST — reject queries without LIMIT or with LIMIT > max. This prevents fetching excess data into memory.
+2. **Post-execute (fallback):** Result budget truncation — caps rows/bytes/cell-length before returning to LLM. Defense against policy bugs or wide-row scenarios.
+
+Prevents:
+- Wide-row leakage: `SELECT id, profile_json, full_address, notes FROM users LIMIT 20`
+- Large text extraction via JSON/text columns
+- Memory exhaustion from unbounded fetches
+
+### Database Setup (Primary Security Boundary)
+
+> **For `text2sql` / `sensitive` deployments, this is REQUIRED — not optional.**
+> For local demo / general analytics with `general` profile, direct table access may be acceptable.
+
+The database privilege layer is the **primary security boundary**. MCP guardrails (AST validation, column policy) are the **secondary layer**. If the parser has a bug, DB privileges still prevent access to unauthorized data.
 
 ```sql
 -- 1. Create restricted user for MCP (NEVER use superuser)
 CREATE USER text2sql_reader WITH PASSWORD '...';
 
 -- 2. Create curated views (semantic layer)
-CREATE VIEW text2sql_users AS
+CREATE VIEW text2sql.users_view AS
 SELECT id, full_name, department, created_at FROM users;
 
-CREATE VIEW text2sql_transactions AS
+CREATE VIEW text2sql.transactions_view AS
 SELECT id, amount, transaction_type, status, created_at FROM transactions;
 
 -- 3. Grant only on views, NOT raw tables
-GRANT SELECT ON text2sql_users TO text2sql_reader;
-GRANT SELECT ON text2sql_transactions TO text2sql_reader;
+GRANT USAGE ON SCHEMA text2sql TO text2sql_reader;
+GRANT SELECT ON ALL TABLES IN SCHEMA text2sql TO text2sql_reader;
 REVOKE ALL ON users FROM text2sql_reader;
+REVOKE ALL ON transactions FROM text2sql_reader;
 
 -- 4. Row-Level Security (if multi-tenant)
 ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
@@ -159,6 +268,11 @@ CREATE POLICY user_txn_policy ON transactions
 ```
 
 **The MCP server MUST connect as `text2sql_reader`, not as superuser or table owner.**
+
+Why this matters:
+- MCP guardrails are a single point of failure — one parser edge case = data leak
+- DB privileges are enforced by PostgreSQL engine regardless of application bugs
+- Even if AST validator is bypassed, `text2sql_reader` cannot see raw tables
 
 ## Project Structure
 

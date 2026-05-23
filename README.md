@@ -14,6 +14,10 @@ An AI agent connects to this MCP server and can:
 
 All operations go through a security pipeline. Read-only by default. No raw database access.
 
+> **Status:** Prototype / internal demo. Current guardrails use regex-based validation.
+> Phase 10 (AST-based security with `sqlglot`, column policy, read-only transactions) is planned but not yet implemented.
+> See [Implementation Plan](docs/PLAN.md) for details.
+
 ## Documentation
 
 | Document | Description |
@@ -54,12 +58,27 @@ npx @modelcontextprotocol/inspector fastmcp run src/postgresql_mcp/app.py:mcp
 
 Environment variables (or `.env` file):
 
+### Implemented
+
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `POSTGRESQL_CONNECTION_STRING` | *(required)* | PostgreSQL URI (`postgresql://user:pass@host:5432/db`) |
 | `READ_ONLY` | `true` | Only allow read/metadata operations |
 | `ALLOW_DESTRUCTIVE` | `false` | Allow truncate. Requires `READ_ONLY=false` |
 | `WRITE_ALLOWLIST` | *(unset)* | Comma-separated `schema.table` glob patterns for writes |
+| `DEFAULT_LIMIT` | `100` | Auto-injected LIMIT for queries without one |
+| `MAX_LIMIT` | `1000` | Maximum allowed LIMIT |
+| `MAX_QUERY_LENGTH` | `10000` | Max SQL length |
+| `QUERY_TIMEOUT_SECONDS` | `300` | Statement timeout |
+| `RATE_LIMIT_MAX_CALLS` | `100` | Max queries per window |
+| `RATE_LIMIT_WINDOW_SECONDS` | `3600` | Rate limit window |
+| `PII_RULES` | *(unset)* | JSON array: `[{"column":"email","method":"hash"}]` |
+| `LOG_LEVEL` | `INFO` | Logging level |
+
+### Planned (Phase 10 — not yet implemented)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
 | `ENABLE_WRITE_TOOLS` | `false` | Register write tools with MCP (insert/update/delete) |
 | `BLOCK_SELECT_STAR` | `true` | Reject `SELECT *` — force explicit column listing |
 | `BLOCK_SUBQUERIES` | `true` | Reject subqueries in strict mode |
@@ -70,14 +89,6 @@ Environment variables (or `.env` file):
 | `MAX_OFFSET` | `10000` | Maximum allowed OFFSET value |
 | `DEFAULT_SCHEMA` | `public` | Default schema for unqualified table names in policy lookup |
 | `USER_CONTEXT_VARIABLE` | *(unset)* | PostgreSQL variable for RLS context (e.g. `app.current_user_id`) |
-| `DEFAULT_LIMIT` | `100` | Auto-injected LIMIT for queries without one |
-| `MAX_LIMIT` | `1000` | Maximum allowed LIMIT |
-| `MAX_QUERY_LENGTH` | `10000` | Max SQL length |
-| `QUERY_TIMEOUT_SECONDS` | `300` | Statement timeout |
-| `RATE_LIMIT_MAX_CALLS` | `100` | Max queries per window |
-| `RATE_LIMIT_WINDOW_SECONDS` | `3600` | Rate limit window |
-| `PII_RULES` | *(unset)* | JSON array: `[{"column":"email","method":"hash"}]` |
-| `LOG_LEVEL` | `INFO` | Logging level |
 
 ## MCP Tools Reference
 
@@ -139,9 +150,9 @@ Integration tests auto-skip when the database is unavailable.
 
 - **[FastMCP](https://github.com/PrefectHQ/fastmcp)** — MCP server framework
 - **[asyncpg](https://github.com/MagicStack/asyncpg)** — Async PostgreSQL driver with connection pooling
-- **[sqlglot](https://github.com/tobymao/sqlglot)** — SQL AST parser for security validation
 - **[Pydantic Settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/)** — Config from env vars
 - **[pytest](https://docs.pytest.org/)** + **[pytest-asyncio](https://pytest-asyncio.readthedocs.io/)** — Async testing
+- **[sqlglot](https://github.com/tobymao/sqlglot)** *(planned — Phase 10)* — SQL AST parser for security validation
 
 ## License
 
