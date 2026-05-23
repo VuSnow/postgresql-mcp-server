@@ -5,8 +5,9 @@ description = "A FastMCP Server for PostgreSQL — schema inspection, metadata r
 requires-python = ">=3.11"
 dependencies = [
     "fastmcp>=2.10.1",
-    "asyncpg>=0.30.0",
-    "pydantic-settings>=2.13.1",
+    "asyncpg>=0.31.0",
+    "pydantic-settings>=2.12.0",
+    "sqlglot>=30.8.0",
 ]
 
 [project.optional-dependencies]

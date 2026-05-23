@@ -44,6 +44,9 @@ pip install -e ".[dev]"
 # Configure
 export POSTGRESQL_CONNECTION_STRING="postgresql://user:password@localhost:5432/mydb"
 
+# Seed sample data (banking schema, idempotent)
+./data/seed.sh "$POSTGRESQL_CONNECTION_STRING"
+
 # Run
 fastmcp run src/postgresql_mcp/app.py:mcp
 
@@ -153,6 +156,23 @@ POSTGRESQL_CONNECTION_STRING="postgresql://user:pass@localhost:5432/dbname" pyte
 ```
 
 Integration tests auto-skip when the database is unavailable.
+
+## Sample Data
+
+The `data/` folder contains idempotent SQL seed files for a banking schema (text2sql testing):
+
+| File | Table | Records |
+|------|-------|---------|
+| `001_customers.sql` | `customers` | 10 customers with KYC info |
+| `002_accounts.sql` | `accounts` | 18 accounts (checking/savings/credit/loan) |
+| `003_transactions.sql` | `transactions` | 32 transactions (deposit/withdrawal/transfer/payment) |
+| `004_cards.sql` | `cards` | 11 debit/credit cards |
+| `005_branches.sql` | `branches` | 10 branch offices + ATMs |
+
+```bash
+# Run all seed files (safe to re-run)
+./data/seed.sh "postgresql://user:pass@localhost:5432/mydb"
+```
 
 ## Tech Stack
 

@@ -10,42 +10,11 @@ Logs:
 """
 
 import logging
-import time
-from dataclasses import dataclass, field
 from typing import Any
 
+from postgresql_mcp.guardrails.models import AuditEntry, MAX_QUERY_LOG_LENGTH
+
 logger = logging.getLogger("postgresql_mcp.audit")
-
-MAX_QUERY_LOG_LENGTH = 500
-
-
-@dataclass
-class AuditEntry:
-    """A single audit log entry."""
-    query: str
-    duration_ms: float | None = None
-    rows_returned: int | None = None
-    blocked: bool = False
-    blocked_reason: str | None = None
-    error: str | None = None
-    timestamp: float = field(default_factory=time.time)
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to dict for structured logging."""
-        d = {
-            "query": self.query[:MAX_QUERY_LOG_LENGTH],
-            "timestamp": self.timestamp,
-            "blocked": self.blocked,
-        }
-        if self.duration_ms is not None:
-            d["duration_ms"] = round(self.duration_ms, 2)
-        if self.rows_returned is not None:
-            d["rows_returned"] = self.rows_returned
-        if self.blocked_reason:
-            d["blocked_reason"] = self.blocked_reason
-        if self.error:
-            d["error"] = self.error
-        return d
 
 
 class AuditLogger:
