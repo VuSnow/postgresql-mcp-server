@@ -24,6 +24,7 @@ All operations go through a security pipeline. Read-only by default. No raw data
 |----------|-------------|
 | [Architecture](docs/ARCHITECTURE.md) | System design, layer diagram, guardrails pipeline, security model, project structure |
 | [Implementation Plan](docs/PLAN.md) | Phase-by-phase progress, Phase 10 security hardening details |
+| [Test Cases](docs/test_cases.md) | 85 manual test cases for MCP Inspector validation (inputs, expected outputs, banking data) |
 
 ## Design Principles
 
@@ -55,6 +56,22 @@ fastmcp dev src/postgresql_mcp/app.py:mcp
 
 # MCP Inspector
 npx @modelcontextprotocol/inspector fastmcp run src/postgresql_mcp/app.py:mcp
+```
+
+### Docker
+
+```bash
+# Build
+docker build -t postgresql-mcp-server .
+
+# Run
+docker run --rm \
+  -e POSTGRESQL_CONNECTION_STRING="postgresql://user:pass@host.docker.internal:5432/mydb" \
+  -p 8000:8000 \
+  postgresql-mcp-server
+
+# With .env file
+docker run --rm --env-file .env -p 8000:8000 postgresql-mcp-server
 ```
 
 ## Configuration
