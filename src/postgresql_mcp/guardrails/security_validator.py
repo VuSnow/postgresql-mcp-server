@@ -74,6 +74,13 @@ INJECTION_PATTERNS = [
     re.compile(r"EXEC(\s|\(|UTE)", re.IGNORECASE),
     re.compile(r"xp_cmdshell", re.IGNORECASE),
     re.compile(r"0x[0-9a-fA-F]{8,}"),  # long hex literals (shellcode)
+    # Phase 10.7: PostgreSQL-specific injection patterns
+    re.compile(r"\bpg_shadow\b", re.IGNORECASE),
+    re.compile(r"\bpg_authid\b", re.IGNORECASE),
+    re.compile(r"\bcurrent_setting\s*\(", re.IGNORECASE),
+    re.compile(r"\bCOPY\s+(TO|FROM)\b", re.IGNORECASE),
+    re.compile(r"\bCHR\s*\(\s*\d+\s*\)", re.IGNORECASE),
+    re.compile(r"\bpg_advisory_(xact_)?lock", re.IGNORECASE),
 ]
 
 # ─── Comment stripping ─────────────────────────────────────────────────────

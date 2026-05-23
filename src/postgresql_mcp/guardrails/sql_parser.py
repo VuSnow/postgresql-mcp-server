@@ -235,7 +235,16 @@ def _extract_functions(stmt: exp.Expression) -> list[str]:
     """Extract all function names called in the query."""
     functions = set()
     for func in stmt.find_all(exp.Func):
-        name = func.sql_name() if hasattr(func, "sql_name") else type(func).__name__.lower()
+        if isinstance(func, exp.Anonymous):
+            # Anonymous nodes hold user-defined / unrecognized function names in .name
+            name = func.name
+        else:
+            # Generate in postgres dialect to get the real PostgreSQL function name
+            generated = func.sql(dialect="postgres")
+            if "(" in generated:
+                name = generated.split("(")[0].strip()
+            else:
+                name = func.sql_name() if hasattr(func, "sql_name") else type(func).__name__.lower()
         if name:
             functions.add(name.lower())
     return sorted(functions)

@@ -49,6 +49,7 @@ class DeleteService(BaseService):
                 "Use truncate_table for that purpose."
             )
 
+        self._validate_where_clause(where_clause)
         where_vals = where_values or []
 
         count = await self.client.delete(schema, table_name, where_clause, where_vals)

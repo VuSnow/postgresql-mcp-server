@@ -18,6 +18,15 @@ logger = logging.getLogger(__name__)
 
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
+# Patterns blocked in WHERE clauses for write operations
+_STACKED_QUERY_RE = re.compile(r";")
+_LINE_COMMENT_RE = re.compile(r"--")
+_BLOCK_COMMENT_RE = re.compile(r"/\*")
+_SUBQUERY_RE = re.compile(r"\bSELECT\b", re.IGNORECASE)
+_DDL_DCL_RE = re.compile(
+    r"\b(CREATE|ALTER|DROP|TRUNCATE|GRANT|REVOKE|COPY)\b", re.IGNORECASE
+)
+
 
 class BaseService:
     """Base class for all service layers. Owns connection + config access."""
@@ -103,3 +112,47 @@ class BaseService:
             f"Write to '{target}' is not allowed. "
             f"Allowed patterns: {patterns}"
         )
+
+    # ─── WHERE Clause Sanitization (Write Ops) ─────────────────────────
+
+    def _validate_where_clause(self, where_clause: str) -> None:
+        """
+        Validate a WHERE clause for write operations (UPDATE/DELETE).
+
+        Blocks:
+        - Stacked queries (;)
+        - SQL comments (-- and /* */)
+        - Subqueries (SELECT keyword)
+        - DDL/DCL keywords (CREATE, ALTER, DROP, TRUNCATE, GRANT, REVOKE, COPY)
+
+        Raises:
+            ValueError: If the WHERE clause contains dangerous patterns.
+        """
+        if not where_clause:
+            return
+
+        if _STACKED_QUERY_RE.search(where_clause):
+            raise ValueError(
+                "WHERE clause must not contain ';' (stacked queries are not allowed)."
+            )
+
+        if _LINE_COMMENT_RE.search(where_clause):
+            raise ValueError(
+                "WHERE clause must not contain SQL comments (--)."
+            )
+
+        if _BLOCK_COMMENT_RE.search(where_clause):
+            raise ValueError(
+                "WHERE clause must not contain block comments (/* */)."
+            )
+
+        if _SUBQUERY_RE.search(where_clause):
+            raise ValueError(
+                "WHERE clause must not contain subqueries (SELECT keyword is not allowed in write WHERE)."
+            )
+
+        if _DDL_DCL_RE.search(where_clause):
+            raise ValueError(
+                "WHERE clause must not contain DDL/DCL keywords "
+                "(CREATE, ALTER, DROP, TRUNCATE, GRANT, REVOKE, COPY)."
+            )

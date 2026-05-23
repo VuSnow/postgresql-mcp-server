@@ -50,6 +50,8 @@ class UpdateService(BaseService):
                 "Full-table updates without WHERE are not allowed."
             )
 
+        self._validate_where_clause(where_clause)
+
         # Validate column names in SET
         set_columns = list(set_data.keys())
         for col in set_columns:

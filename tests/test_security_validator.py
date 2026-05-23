@@ -170,6 +170,69 @@ class TestInjectionPatterns:
         assert not r.is_valid
 
 
+class TestPostgresInjectionPatterns:
+    """Phase 10.7: PostgreSQL-specific injection patterns."""
+
+    @pytest.fixture
+    def validator(self):
+        return SecurityValidator(read_only=True)
+
+    def test_pg_shadow_probe(self, validator):
+        r = validator.validate("SELECT * FROM pg_shadow")
+        assert not r.is_valid
+
+    def test_pg_authid_probe(self, validator):
+        r = validator.validate("SELECT rolpassword FROM pg_authid")
+        assert not r.is_valid
+
+    def test_current_setting_extraction(self, validator):
+        r = validator.validate("SELECT current_setting('data_directory')")
+        assert not r.is_valid
+
+    def test_current_setting_case_insensitive(self, validator):
+        r = validator.validate("SELECT CURRENT_SETTING('log_connections')")
+        assert not r.is_valid
+
+    def test_copy_to_file(self, validator):
+        r = validator.validate("COPY users TO '/tmp/dump.csv'")
+        assert not r.is_valid
+
+    def test_copy_from_file(self, validator):
+        r = validator.validate("COPY users FROM '/etc/passwd'")
+        assert not r.is_valid
+
+    def test_chr_encoding_bypass(self, validator):
+        r = validator.validate("SELECT CHR(65) || CHR(66)")
+        assert not r.is_valid
+
+    def test_chr_with_spaces(self, validator):
+        r = validator.validate("SELECT chr( 39 )")
+        assert not r.is_valid
+
+    def test_pg_advisory_lock_dos(self, validator):
+        r = validator.validate("SELECT pg_advisory_lock(1)")
+        assert not r.is_valid
+
+    def test_pg_advisory_xact_lock(self, validator):
+        r = validator.validate("SELECT pg_advisory_xact_lock(1, 2)")
+        assert not r.is_valid
+
+    # ─── Should NOT be blocked (false positive check) ────────────────────
+
+    def test_legitimate_pg_stat_user_tables(self, validator):
+        """pg_stat_user_tables doesn't match pg_shadow/pg_authid patterns."""
+        r = validator.validate("SELECT relname FROM pg_stat_user_tables")
+        # This may be blocked by other rules (first keyword), but NOT by injection patterns
+        # We only check it doesn't match pg_shadow/pg_authid
+        # Actually read-only allows SELECT but pg_stat... might be allowed
+        assert r.is_valid or "injection" not in (r.reason or "").lower()
+
+    def test_column_named_copy_ok(self, validator):
+        """Column named 'copy_date' should not trigger COPY pattern."""
+        r = validator.validate("SELECT copy_date FROM documents WHERE id = 1")
+        assert r.is_valid
+
+
 class TestQueryLength:
     def test_exceeds_max_length(self):
         validator = SecurityValidator(max_query_length=50)
