@@ -191,6 +191,18 @@ class ServerConfigs(BaseSettings):
         description="Maximum allowed OFFSET value.",
     )
 
+    block_explain: Optional[bool] = Field(
+        None,
+        alias="BLOCK_EXPLAIN",
+        description="Block EXPLAIN entirely. If unset, derived from security profile (True for sensitive).",
+    )
+
+    block_explain_analyze: bool = Field(
+        True,
+        alias="BLOCK_EXPLAIN_ANALYZE",
+        description="Block EXPLAIN ANALYZE (executes the query). Default True.",
+    )
+
     max_result_rows: int = Field(
         100,
         alias="MAX_RESULT_ROWS",
@@ -251,6 +263,13 @@ class ServerConfigs(BaseSettings):
         if self.security_profile in (SecurityProfile.TEXT2SQL, SecurityProfile.SENSITIVE):
             return "allowlist"
         return "blacklist"
+
+    @property
+    def effective_block_explain(self) -> bool:
+        """Whether EXPLAIN is blocked entirely."""
+        if self.block_explain is not None:
+            return self.block_explain
+        return self.security_profile == SecurityProfile.SENSITIVE
 
     @model_validator(mode="after")
     def _validate_security_profile(self) -> "ServerConfigs":

@@ -6,8 +6,10 @@ readable strings optimized for agent output.
 """
 
 import logging
-from typing import Any
+from typing import Any, Optional
 
+from postgresql_mcp.guardrails.column_policy import load_column_policy
+from postgresql_mcp.guardrails.metadata_filter import MetadataFilter
 from postgresql_mcp.services.postgresql.base import BaseService
 
 logger = logging.getLogger(__name__)
@@ -15,6 +17,20 @@ logger = logging.getLogger(__name__)
 
 class MetadataService(BaseService):
     """Service layer for database metadata operations."""
+
+    def __init__(self, connection_manager, configs):
+        super().__init__(connection_manager, configs)
+        # Load metadata filter from column policy
+        policy = load_column_policy(
+            policy_json=configs.column_policy,
+            policy_file=configs.column_policy_file,
+            mode=configs.effective_column_policy_mode,
+            default_schema=configs.default_schema,
+        )
+        self._metadata_filter = MetadataFilter(
+            policy=policy if policy.policies else None,
+            filtering_enabled=configs.effective_metadata_filtering,
+        )
 
     async def list_schemas(self) -> str:
         """List all non-system schemas. Returns formatted string."""
@@ -38,6 +54,9 @@ class MetadataService(BaseService):
 
         rows = await self.client.list_tables(schema)
 
+        # Apply metadata filtering
+        rows = self._metadata_filter.filter_tables(rows, schema)
+
         if not rows:
             return f"No tables found in schema '{schema}'."
 
@@ -56,10 +75,18 @@ class MetadataService(BaseService):
         await self.ensure_connected()
         self._validate_table_name(table_name, schema)
 
+        # Metadata policy check
+        access = self._metadata_filter.check_table_access(table_name, schema)
+        if access.is_blocked:
+            return f"Access denied: {access.reason}"
+
         rows = await self.client.get_table_schema(table_name, schema)
 
         if not rows:
             return f"Table '{schema}.{table_name}' not found or has no columns."
+
+        # Filter columns by policy
+        rows = self._metadata_filter.filter_columns(rows, table_name, schema)
 
         lines = [f"Columns for '{schema}.{table_name}':", ""]
         lines.append(f"{'#':<4} {'Column':<30} {'Type':<20} {'Nullable':<10} {'Default'}")
@@ -88,6 +115,11 @@ class MetadataService(BaseService):
         await self.ensure_connected()
         self._validate_table_name(table_name, schema)
 
+        # Metadata policy check
+        access = self._metadata_filter.check_table_access(table_name, schema)
+        if access.is_blocked:
+            return f"Access denied: {access.reason}"
+
         rows = await self.client.get_indexes(table_name, schema)
 
         if not rows:
@@ -114,6 +146,11 @@ class MetadataService(BaseService):
         """List constraints for a table. Returns formatted string."""
         await self.ensure_connected()
         self._validate_table_name(table_name, schema)
+
+        # Metadata policy check
+        access = self._metadata_filter.check_table_access(table_name, schema)
+        if access.is_blocked:
+            return f"Access denied: {access.reason}"
 
         rows = await self.client.get_constraints(table_name, schema)
 
@@ -146,6 +183,11 @@ class MetadataService(BaseService):
         await self.ensure_connected()
         self._validate_table_name(table_name, schema)
         self._validate_identifier(column, "column")
+
+        # Column values access check (sampleable_columns only)
+        access = self._metadata_filter.check_column_values_access(table_name, column, schema)
+        if access.is_blocked:
+            return f"Access denied: {access.reason}"
 
         values = await self.client.get_column_values(table_name, column, schema, limit)
 

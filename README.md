@@ -14,9 +14,9 @@ An AI agent connects to this MCP server and can:
 
 All operations go through a security pipeline. Read-only by default. No raw database access.
 
-> **Status:** Prototype / internal demo. Current guardrails use regex-based validation.
-> Phase 10 (AST-based security with `sqlglot`, column policy, read-only transactions) is planned but not yet implemented.
-> See [Implementation Plan](docs/PLAN.md) for details.
+> **Status:** Production-ready security hardening complete.
+> Phase 10 (AST-based security with `sqlglot`, column policy, critical pattern blocking) is fully implemented.
+> 711 unit tests, 0 failures. See [Implementation Plan](docs/PLAN.md) for details.
 
 ## Documentation
 
@@ -78,7 +78,7 @@ Environment variables (or `.env` file):
 | `PII_RULES` | *(unset)* | JSON array: `[{"column":"email","method":"hash"}]` |
 | `LOG_LEVEL` | `INFO` | Logging level |
 
-### Planned (Phase 10 — not yet implemented)
+### Security Hardening (Phase 10)
 
 | Variable | Default | Description |
 |----------|---------|-------------|

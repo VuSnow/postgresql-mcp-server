@@ -37,18 +37,27 @@
 Every `execute_query` passes through this pipeline:
 
 ```
-PRE-EXECUTE                          POST-EXECUTE
-┌──────────────────────┐             ┌──────────────────────┐
-│ 1. RateLimiter       │             │ 4. PIIMasker         │
-│    sliding window    │             │    hash / redact     │
-│                      │             │                      │
-│ 2. SecurityValidator │             │ 5. AuditLogger       │
-│    injection, DDL,   │  → EXECUTE →│    structured log    │
-│    forbidden kw      │             │                      │
-│                      │             └──────────────────────┘
-│ 3. QueryRewriter     │
-│    auto LIMIT, cap   │
-└──────────────────────┘
+PRE-EXECUTE                              POST-EXECUTE
+┌────────────────────────────────┐       ┌──────────────────────────┐
+│ 1. Critical Patterns (regex)   │       │ 7. Result Budget         │
+│    defense-in-depth            │       │    row/byte/cell truncate│
+│                                │       │                          │
+│ 2. RateLimiter                 │       │ 8. PIIMasker             │
+│    sliding window              │       │    hash / redact         │
+│                                │       │                          │
+│ 3. SecurityValidator           │       │ 9. AuditLogger           │
+│    injection, DDL, functions   │       │    structured log        │
+│                                │       └──────────────────────────┘
+│ 4. Statement Guard             │
+│    single stmt, shapes         │  → EXECUTE →
+│                                │
+│ 5. AST Guardrails              │
+│    star, columns, functions,   │
+│    subqueries, limit/offset    │
+│                                │
+│ 6. QueryRewriter               │
+│    auto LIMIT, cap             │
+└────────────────────────────────┘
 ```
 
 ## Write Policy
@@ -300,11 +309,21 @@ src/postgresql_mcp/
 │       └── delete.py   # DeleteService (ALLOW_DESTRUCTIVE gating)
 ├── guardrails/
 │   ├── __init__.py     # GuardrailsPipeline + create_pipeline()
+│   ├── models.py       # GuardrailResult, TablePolicy, AuditEntry
+│   ├── sql_parser.py   # Reusable SQL AST extraction (sqlglot)
 │   ├── audit_logger.py
 │   ├── pii_masker.py
 │   ├── query_rewriter.py
 │   ├── rate_limiter.py
-│   └── security_validator.py
+│   ├── security_validator.py
+│   ├── critical_patterns.py   # Phase 10.17: regex defense-in-depth
+│   ├── subquery_blocker.py    # Phase 10.9: block subqueries/CTE/set-ops
+│   ├── explain_guard.py       # Phase 10.10: EXPLAIN safety
+│   ├── limit_guard.py         # Phase 10.11: LIMIT/OFFSET enforcement
+│   ├── user_context.py        # Phase 10.12: RLS user context (SET LOCAL)
+│   ├── statement_guard.py     # Phase 10.14: single statement + shapes
+│   ├── metadata_filter.py     # Phase 10.15: metadata tools policy
+│   └── result_budget.py       # Phase 10.16: row/byte/cell truncation
 └── tools/
     ├── connection.py   # connect, disconnect, get_status
     ├── create.py       # insert_one, insert_many

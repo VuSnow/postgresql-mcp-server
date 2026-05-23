@@ -20,6 +20,22 @@ class ReadMixin:
 
         return [dict(row) for row in rows], columns
 
+    async def execute_query_with_context(
+        self,
+        set_local_sql: str,
+        query: str,
+        timeout_seconds: int | None = None,
+    ) -> Tuple[List[Dict[str, Any]], List[str]]:
+        """Execute SET LOCAL + query in a single transaction for RLS context."""
+        async with self.pool.acquire() as conn:
+            async with conn.transaction():
+                await conn.execute(set_local_sql)
+                stmt = await conn.prepare(query, timeout=timeout_seconds)
+                columns = [attr.name for attr in stmt.get_attributes()]
+                rows = await stmt.fetch(timeout=timeout_seconds)
+
+        return [dict(row) for row in rows], columns
+
     async def explain_query(self, query: str, analyze: bool = False, format: str = "text", timeout_seconds: int | None = None) -> str:
         """Run EXPLAIN on a query. Returns the plan as a string."""
         fmt = format.upper()

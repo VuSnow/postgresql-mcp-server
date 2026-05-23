@@ -13,7 +13,7 @@
 | 7 | Write service + tools | ✅ Done |
 | 8 | Delete service + tools | ✅ Done |
 | 9 | Hardening + final tests | ✅ Done |
-| 10 | SQL injection & data leakage hardening | 🔒 Planned |
+| 10 | SQL injection & data leakage hardening | ✅ Done |
 
 ---
 

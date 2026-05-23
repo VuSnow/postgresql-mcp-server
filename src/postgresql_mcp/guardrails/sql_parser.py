@@ -187,14 +187,18 @@ def _has_subquery(stmt: exp.Expression) -> bool:
         # Check it's not a CTE body
         node = select.parent
         is_cte = False
+        is_set_op = False
         while node is not None:
             if isinstance(node, exp.CTE):
                 is_cte = True
                 break
+            if isinstance(node, (exp.Union, exp.Intersect, exp.Except)):
+                is_set_op = True
+                break
             if node is stmt:
                 break
             node = node.parent
-        if not is_cte:
+        if not is_cte and not is_set_op:
             return True
     return False
 

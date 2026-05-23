@@ -6,10 +6,13 @@ Pipeline: RateLimiter → SecurityValidator → QueryRewriter → execute → PI
 
 import logging
 import time
-from typing import Any
+from typing import Any, Optional
 
 from postgresql_mcp.guardrails import GuardrailsPipeline, create_pipeline
+from postgresql_mcp.guardrails.critical_patterns import check_critical_patterns
+from postgresql_mcp.guardrails.explain_guard import check_explain
 from postgresql_mcp.guardrails.security_validator import SecurityValidator
+from postgresql_mcp.guardrails.user_context import validate_user_id, build_set_local_sql
 from postgresql_mcp.services.postgresql.base import BaseService
 
 logger = logging.getLogger(__name__)
@@ -28,12 +31,20 @@ class ReadService(BaseService):
             allow_destructive=configs.allow_destructive,
         )
 
-    async def execute_query(self, query: str) -> str:
+    async def execute_query(self, query: str, user_id: Optional[str] = None) -> str:
         """
         Execute a SQL query with full guardrails pipeline.
         Returns LLM-friendly formatted result string.
+
+        If user_id is provided and USER_CONTEXT_VARIABLE is configured,
+        SET LOCAL is executed in the same transaction for RLS support.
         """
         await self.ensure_connected()
+
+        # CRITICAL PATTERN CHECK (defense-in-depth, before AST)
+        cp_check = check_critical_patterns(query)
+        if cp_check.is_blocked:
+            return f"Query blocked: {cp_check.reason}"
 
         # PRE-EXECUTE: rate limit + security + rewrite
         pre = self._pipeline.pre_execute(query)
@@ -42,13 +53,30 @@ class ReadService(BaseService):
 
         rewritten_query = pre.rewritten_query
 
+        # RLS user context
+        set_local_sql = None
+        if user_id and self._configs.user_context_variable:
+            id_check = validate_user_id(user_id)
+            if id_check.is_blocked:
+                return f"Query blocked: {id_check.reason}"
+            set_local_sql = build_set_local_sql(
+                self._configs.user_context_variable, user_id
+            )
+
         # EXECUTE
         start = time.time()
         try:
-            rows, columns = await self.client.execute_query(
-                rewritten_query,
-                timeout_seconds=self._configs.query_timeout_seconds,
-            )
+            if set_local_sql:
+                rows, columns = await self.client.execute_query_with_context(
+                    set_local_sql,
+                    rewritten_query,
+                    timeout_seconds=self._configs.query_timeout_seconds,
+                )
+            else:
+                rows, columns = await self.client.execute_query(
+                    rewritten_query,
+                    timeout_seconds=self._configs.query_timeout_seconds,
+                )
             duration_ms = (time.time() - start) * 1000
         except Exception as e:
             duration_ms = (time.time() - start) * 1000
@@ -85,6 +113,20 @@ class ReadService(BaseService):
         EXPLAIN ANALYZE actually executes the query (use with caution).
         """
         await self.ensure_connected()
+
+        # EXPLAIN safety guard
+        explain_check = check_explain(
+            analyze=analyze,
+            block_explain=self._configs.effective_block_explain,
+            block_explain_analyze=self._configs.block_explain_analyze,
+        )
+        if explain_check.is_blocked:
+            return f"Query blocked: {explain_check.reason}"
+
+        # Critical pattern check on the inner query
+        cp_check = check_critical_patterns(query)
+        if cp_check.is_blocked:
+            return f"Query blocked: {cp_check.reason}"
 
         # Security check on the inner query
         validation = self._security_validator.validate(query)

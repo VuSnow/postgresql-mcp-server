@@ -6,13 +6,15 @@ Tools: execute_query, dry_run_query, explain_query
 
 import logging
 
+from typing import Optional
+
 from postgresql_mcp.server import mcp, read_service
 
 logger = logging.getLogger(__name__)
 
 
 @mcp.tool()
-async def execute_query(query: str) -> dict:
+async def execute_query(query: str, user_id: Optional[str] = None) -> dict:
     """Execute a SQL query and return results.
 
     The query passes through a security pipeline:
@@ -24,12 +26,14 @@ async def execute_query(query: str) -> dict:
 
     Args:
         query: SQL SELECT query to execute.
+        user_id: Optional user identifier for Row-Level Security (RLS).
+                 Only used when USER_CONTEXT_VARIABLE is configured.
 
     Returns formatted results with column headers and row data.
     Only SELECT queries are allowed in read-only mode.
     """
     try:
-        return {"result": await read_service.execute_query(query)}
+        return {"result": await read_service.execute_query(query, user_id=user_id)}
     except Exception as e:
         logger.error(f"[tool] execute_query error: {e}")
         return {"error": str(e)}
