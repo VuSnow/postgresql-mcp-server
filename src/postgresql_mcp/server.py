@@ -4,10 +4,14 @@ Shared application state — MCP instance and bootstrapped services.
 Both app.py and tools/*.py import from here to avoid circular imports.
 """
 
+import logging
+from contextlib import asynccontextmanager
+
 from fastmcp import FastMCP
 
 from postgresql_mcp.configs import ServerConfigs
 from postgresql_mcp.guardrails import create_pipeline
+from postgresql_mcp.logging_config import setup_logging
 from postgresql_mcp.services.connection_manager import ConnectionManager
 from postgresql_mcp.services.postgresql.metadata import MetadataService
 from postgresql_mcp.services.postgresql.read import ReadService
@@ -15,18 +19,15 @@ from postgresql_mcp.services.postgresql.create import CreateService
 from postgresql_mcp.services.postgresql.update import UpdateService
 from postgresql_mcp.services.postgresql.delete import DeleteService
 
-mcp = FastMCP(
-    name="PostgreSQL MCP Server",
-    instructions=(
-        "You are a PostgreSQL assistant. Use the available tools to help users "
-        "interact with their PostgreSQL databases — querying data, inspecting "
-        "schema structure, and managing database operations."
-    ),
-)
+# ─── Bootstrap configs & logging ─────────────────────────────────────────────
+
+configs = ServerConfigs()
+setup_logging(level=configs.log_level)
+
+logger = logging.getLogger(__name__)
 
 # ─── Bootstrap services ─────────────────────────────────────────────────────
 
-configs = ServerConfigs()
 connection_manager = ConnectionManager(configs)
 metadata_service = MetadataService(connection_manager, configs)
 
@@ -39,8 +40,37 @@ pipeline = create_pipeline(
     default_limit=configs.default_limit,
     max_limit=configs.max_limit,
     pii_rules_json=configs.pii_rules,
+    audit_max_entries=configs.audit_max_entries,
 )
 read_service = ReadService(connection_manager, configs, pipeline)
 create_service = CreateService(connection_manager, configs)
 update_service = UpdateService(connection_manager, configs)
 delete_service = DeleteService(connection_manager, configs)
+
+
+# ─── Lifespan — graceful startup & shutdown ──────────────────────────────────
+
+
+@asynccontextmanager
+async def lifespan(app: FastMCP):
+    """Manage connection pool lifecycle."""
+    logger.info("[lifespan] Starting PostgreSQL MCP Server...")
+    try:
+        yield
+    finally:
+        logger.info("[lifespan] Shutting down — closing connection pool...")
+        await connection_manager.disconnect()
+        logger.info("[lifespan] Shutdown complete.")
+
+
+# ─── MCP Instance ───────────────────────────────────────────────────────────
+
+mcp = FastMCP(
+    name="PostgreSQL MCP Server",
+    instructions=(
+        "You are a PostgreSQL assistant. Use the available tools to help users "
+        "interact with their PostgreSQL databases — querying data, inspecting "
+        "schema structure, and managing database operations."
+    ),
+    lifespan=lifespan,
+)

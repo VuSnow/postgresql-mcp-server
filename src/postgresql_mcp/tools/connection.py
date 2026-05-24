@@ -44,11 +44,20 @@ async def disconnect() -> dict:
 async def get_status() -> dict:
     """Get the current connection status.
 
-    Returns state (disconnected/connecting/connected/error) and
-    last error message if any.
+    Returns state (disconnected/connecting/connected/error),
+    last error message if any, and database health (ping result).
     """
     status = connection_manager.get_status()
     result = {"state": status["state"]}
     if status["last_error"]:
         result["last_error"] = status["last_error"]
+
+    # If connected, perform a real health check
+    if status["state"] == "connected":
+        try:
+            healthy = await connection_manager.health_check()
+            result["healthy"] = healthy
+        except Exception:
+            result["healthy"] = False
+
     return {"result": result}

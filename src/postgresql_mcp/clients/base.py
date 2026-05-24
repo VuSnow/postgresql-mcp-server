@@ -8,18 +8,23 @@ class BasePostgreSQLClient:
     def __init__(self):
         self._pool: asyncpg.Pool | None = None
         
-    async def connect(self, connection_string: str) -> str:
+    async def connect(
+        self,
+        connection_string: str,
+        min_size: int = 1,
+        max_size: int = 10,
+    ) -> None:
         """Create connection pool."""
         if self._pool is not None:
             return
         
-        logger.info(f"[client] Creating connection pool.")
+        logger.info("[client] Creating connection pool.")
         self._pool = await asyncpg.create_pool(
             dsn=connection_string,
-            min_size=1,
-            max_size=10
+            min_size=min_size,
+            max_size=max_size,
         )
-        logger.info("[client] Connection pool created")
+        logger.info("[client] Connection pool created (min=%d, max=%d)", min_size, max_size)
         
     async def close(self) -> None:
         """Close connection pool."""

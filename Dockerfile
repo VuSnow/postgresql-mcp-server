@@ -14,14 +14,18 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy source code and install package
 COPY pyproject.toml ./
 COPY src/ ./src/
-RUN pip install --no-cache-dir -e .
+RUN pip install --no-cache-dir .
+
+# Non-root user for security
+RUN useradd --create-home appuser
+USER appuser
 
 # Expose default MCP port
 EXPOSE 8000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-    CMD python -c "import postgresql_mcp; print('ok')" || exit 1
+# Health check — verifies the process is alive and importable
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
+    CMD python -c "from postgresql_mcp.server import connection_manager; print('ok')" || exit 1
 
 # Run the MCP server
 ENTRYPOINT ["fastmcp", "run", "src/postgresql_mcp/app.py:mcp"]

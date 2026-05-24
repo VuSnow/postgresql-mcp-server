@@ -40,7 +40,11 @@ class TestConnectionManagerConnect:
 
         assert manager.state == ConnectionState.CONNECTED
         assert manager.last_error is None
-        mock_connect.assert_called_once_with("postgresql://test:test@localhost:5432/testdb")
+        mock_connect.assert_called_once_with(
+            "postgresql://test:test@localhost:5432/testdb",
+            min_size=1,
+            max_size=10,
+        )
 
     @pytest.mark.asyncio
     async def test_connect_failure_transitions_to_error(self, manager):

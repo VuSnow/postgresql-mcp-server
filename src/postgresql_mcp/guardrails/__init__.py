@@ -135,6 +135,7 @@ def create_pipeline(
     default_limit: int = 100,
     max_limit: int = 1000,
     pii_rules_json: str | None = None,
+    audit_max_entries: int = 10000,
 ) -> GuardrailsPipeline:
     """Factory function to create a fully configured pipeline."""
     return GuardrailsPipeline(
@@ -146,5 +147,5 @@ def create_pipeline(
         ),
         query_rewriter=QueryRewriter(default_limit=default_limit, max_limit=max_limit),
         pii_masker=PIIMasker(rules=parse_pii_rules(pii_rules_json)),
-        audit_logger=AuditLogger(),
+        audit_logger=AuditLogger(max_entries=audit_max_entries),
     )

@@ -7,21 +7,27 @@ Logs:
 - Execution duration
 - Blocked reason (if rejected by guardrails)
 - Timestamp
+
+In-memory entries are capped at MAX_ENTRIES to prevent unbounded growth.
 """
 
 import logging
+from collections import deque
 from typing import Any
 
 from postgresql_mcp.guardrails.models import AuditEntry, MAX_QUERY_LOG_LENGTH
 
 logger = logging.getLogger("postgresql_mcp.audit")
 
+# Default cap — overridden by AUDIT_MAX_ENTRIES env var via configs
+_DEFAULT_MAX_ENTRIES = 10000
+
 
 class AuditLogger:
     """Records and logs audit entries for query executions."""
 
-    def __init__(self):
-        self._entries: list[AuditEntry] = []
+    def __init__(self, max_entries: int = _DEFAULT_MAX_ENTRIES):
+        self._entries: deque[AuditEntry] = deque(maxlen=max_entries)
 
     def log_execution(
         self,
@@ -70,7 +76,7 @@ class AuditLogger:
     @property
     def entries(self) -> list[AuditEntry]:
         """Access logged entries (for testing/inspection)."""
-        return self._entries
+        return list(self._entries)
 
     def clear(self) -> None:
         """Clear all entries."""

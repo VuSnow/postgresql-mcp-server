@@ -99,6 +99,48 @@ class ServerConfigs(BaseSettings):
         description="Max execution time per query in seconds.",
     )
 
+    # ─── Connection Pool ─────────────────────────────────────────────────────
+
+    pool_min_size: int = Field(
+        1,
+        alias="POOL_MIN_SIZE",
+        description="Minimum number of connections in the pool.",
+    )
+
+    pool_max_size: int = Field(
+        10,
+        alias="POOL_MAX_SIZE",
+        description="Maximum number of connections in the pool.",
+    )
+
+    # ─── Retry / Resilience ──────────────────────────────────────────────────
+
+    connect_max_retries: int = Field(
+        3,
+        alias="CONNECT_MAX_RETRIES",
+        description="Max retry attempts when connecting to PostgreSQL.",
+    )
+
+    connect_base_delay: float = Field(
+        1.0,
+        alias="CONNECT_BASE_DELAY",
+        description="Initial delay in seconds between connect retries (doubles each attempt).",
+    )
+
+    connect_max_delay: float = Field(
+        10.0,
+        alias="CONNECT_MAX_DELAY",
+        description="Maximum delay in seconds between connect retries.",
+    )
+
+    # ─── Audit ───────────────────────────────────────────────────────────────
+
+    audit_max_entries: int = Field(
+        10000,
+        alias="AUDIT_MAX_ENTRIES",
+        description="Max in-memory audit entries before oldest are evicted.",
+    )
+
     rate_limit_max_calls: int = Field(
         100,
         alias="RATE_LIMIT_MAX_CALLS",
