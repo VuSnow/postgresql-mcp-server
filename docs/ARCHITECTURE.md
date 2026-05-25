@@ -19,7 +19,8 @@
 │  handling, just translates params → SQL operations      │
 ├─────────────────────────────────────────────────────────┤
 │  Connection Manager (singleton)                         │
-│  asyncpg pool — lazy init, health checks                │
+│  asyncpg pool — lazy init, health checks,               │
+│  auto-reconnect with exponential backoff                │
 └─────────────────────────────────────────────────────────┘
             │
             ▼
@@ -288,10 +289,11 @@ Why this matters:
 ```
 src/postgresql_mcp/
 ├── app.py              # Entry point — imports tools, exposes mcp
-├── server.py           # Shared state — mcp instance, configs, services
+├── server.py           # Shared state — mcp instance, configs, services, lifespan
 ├── configs.py          # Pydantic-settings (env vars)
+├── logging_config.py   # Structured JSON logging (stdout, ELK/CloudWatch ready)
 ├── clients/
-│   ├── base.py         # BasePostgreSQLClient — pool lifecycle
+│   ├── base.py         # BasePostgreSQLClient — pool lifecycle (configurable size)
 │   ├── create.py       # CreateMixin — parameterized INSERT
 │   ├── metadata.py     # MetadataMixin — schema/table/index queries
 │   ├── read.py         # ReadMixin — raw execute, explain
@@ -299,7 +301,7 @@ src/postgresql_mcp/
 │   ├── delete.py       # DeleteMixin — parameterized DELETE, TRUNCATE
 │   └── utils.py        # validate_identifier()
 ├── services/
-│   ├── connection_manager.py  # Singleton state machine
+│   ├── connection_manager.py  # Singleton state machine + retry with backoff
 │   └── postgresql/
 │       ├── base.py     # BaseService — validation + write policy
 │       ├── create.py   # CreateService
@@ -311,7 +313,7 @@ src/postgresql_mcp/
 │   ├── __init__.py     # GuardrailsPipeline + create_pipeline()
 │   ├── models.py       # GuardrailResult, TablePolicy, AuditEntry
 │   ├── sql_parser.py   # Reusable SQL AST extraction (sqlglot)
-│   ├── audit_logger.py
+│   ├── audit_logger.py # Capped deque (AUDIT_MAX_ENTRIES) + structured log
 │   ├── pii_masker.py
 │   ├── query_rewriter.py
 │   ├── rate_limiter.py
@@ -325,10 +327,72 @@ src/postgresql_mcp/
 │   ├── metadata_filter.py     # Phase 10.15: metadata tools policy
 │   └── result_budget.py       # Phase 10.16: row/byte/cell truncation
 └── tools/
-    ├── connection.py   # connect, disconnect, get_status
+    ├── connection.py   # connect, disconnect, get_status (with health check)
     ├── create.py       # insert_one, insert_many
     ├── delete.py       # delete, truncate_table
     ├── metadata.py     # list_schemas, list_tables, get_table_schema, ...
     ├── read.py         # execute_query, dry_run_query, explain_query
     └── update.py       # update (WHERE mandatory)
 ```
+
+## Production Hardening
+
+### Lifecycle Management
+
+The server uses FastMCP's `lifespan` async context manager for graceful startup/shutdown:
+
+```python
+@asynccontextmanager
+async def lifespan(app: FastMCP):
+    logger.info("Starting PostgreSQL MCP Server...")
+    try:
+        yield
+    finally:
+        await connection_manager.disconnect()  # close pool cleanly
+```
+
+This ensures the connection pool is closed on SIGTERM/SIGINT — no connection leaks.
+
+### Structured Logging
+
+All logs are emitted as single-line JSON to stdout (`logging_config.py`):
+
+```json
+{"timestamp": "2026-05-24T10:00:00+0000", "level": "INFO", "logger": "postgresql_mcp.audit", "message": "Query executed", "audit": {...}}
+```
+
+Configured via `LOG_LEVEL` env var. Compatible with CloudWatch, ELK, Datadog.
+
+### Connection Resilience
+
+`ensure_connected()` retries with exponential backoff on transient failures:
+
+```bash
+CONNECT_MAX_RETRIES=3       # Max retry attempts
+CONNECT_BASE_DELAY=1.0      # Initial delay (seconds)
+CONNECT_MAX_DELAY=10.0      # Cap on delay between retries
+```
+
+Sequence: attempt → fail → sleep 1s → attempt → fail → sleep 2s → attempt → fail → raise.
+
+### Connection Pool
+
+Pool size is tunable via env vars:
+
+```bash
+POOL_MIN_SIZE=1     # Minimum idle connections
+POOL_MAX_SIZE=10    # Maximum concurrent connections
+```
+
+### Audit Log Memory
+
+In-memory audit entries are capped via `deque(maxlen=AUDIT_MAX_ENTRIES)` (default 10,000).
+Oldest entries are evicted when the cap is reached. All entries are also emitted as
+structured log lines, so no data is lost — just not retained in process memory.
+
+### Docker
+
+- Non-root user (`appuser`) for container security
+- `pip install .` (not editable) for reproducible builds
+- Health check verifies server process is alive
+- Production deps only (no pytest in image)
