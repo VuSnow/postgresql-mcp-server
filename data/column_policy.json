@@ -1,0 +1,481 @@
+{
+  "public.customers": {
+    "allowed_columns": [
+      "customer_id",
+      "cif_no",
+      "full_name",
+      "phone_number",
+      "email",
+      "kyc_level",
+      "status",
+      "created_at"
+    ],
+    "sampleable_columns": [
+      "cif_no",
+      "full_name",
+      "status",
+      "kyc_level"
+    ],
+    "required_filter_columns": [
+      "cif_no"
+    ],
+    "allow_aggregates_without_filter": true,
+    "group_by_columns": [
+      "status",
+      "kyc_level",
+      "created_at"
+    ],
+    "max_rows": 100
+  },
+  "public.accounts": {
+    "allowed_columns": [
+      "account_id",
+      "account_no",
+      "cif_no",
+      "account_type",
+      "currency",
+      "balance",
+      "available_balance",
+      "status",
+      "opened_at"
+    ],
+    "sampleable_columns": [
+      "account_no",
+      "cif_no",
+      "account_type",
+      "status"
+    ],
+    "required_filter_columns": [
+      "cif_no"
+    ],
+    "allow_aggregates_without_filter": true,
+    "group_by_columns": [
+      "account_type",
+      "currency",
+      "status",
+      "cif_no"
+    ],
+    "max_rows": 100
+  },
+  "public.cards": {
+    "allowed_columns": [
+      "card_id",
+      "cif_no",
+      "account_no",
+      "masked_card_no",
+      "card_type",
+      "card_network",
+      "credit_limit",
+      "available_limit",
+      "status",
+      "issued_at"
+    ],
+    "sampleable_columns": [
+      "masked_card_no",
+      "card_type",
+      "card_network",
+      "status"
+    ],
+    "required_filter_columns": [
+      "cif_no"
+    ],
+    "allow_aggregates_without_filter": true,
+    "group_by_columns": [
+      "card_type",
+      "card_network",
+      "status",
+      "cif_no"
+    ],
+    "max_rows": 100
+  },
+  "public.beneficiaries": {
+    "allowed_columns": [
+      "beneficiary_id",
+      "cif_no",
+      "beneficiary_name",
+      "beneficiary_account_no",
+      "beneficiary_bank_code",
+      "beneficiary_bank_name",
+      "nickname",
+      "is_saved",
+      "last_used_at",
+      "created_at"
+    ],
+    "sampleable_columns": [
+      "beneficiary_name",
+      "beneficiary_bank_name",
+      "nickname"
+    ],
+    "required_filter_columns": [
+      "cif_no"
+    ],
+    "allow_aggregates_without_filter": true,
+    "group_by_columns": [
+      "beneficiary_bank_code",
+      "beneficiary_bank_name",
+      "is_saved",
+      "cif_no"
+    ],
+    "max_rows": 100
+  },
+  "public.merchants": {
+    "allowed_columns": [
+      "merchant_id",
+      "merchant_name",
+      "merchant_category",
+      "mcc_code",
+      "city",
+      "country",
+      "status"
+    ],
+    "sampleable_columns": [
+      "merchant_name",
+      "merchant_category",
+      "city",
+      "status"
+    ],
+    "required_filter_columns": [],
+    "allow_aggregates_without_filter": true,
+    "group_by_columns": [
+      "merchant_category",
+      "city",
+      "country",
+      "status"
+    ],
+    "max_rows": 200
+  },
+  "public.billers": {
+    "allowed_columns": [
+      "biller_id",
+      "biller_code",
+      "biller_name",
+      "biller_type",
+      "provider",
+      "status"
+    ],
+    "sampleable_columns": [
+      "biller_code",
+      "biller_name",
+      "biller_type",
+      "provider",
+      "status"
+    ],
+    "required_filter_columns": [],
+    "allow_aggregates_without_filter": true,
+    "group_by_columns": [
+      "biller_type",
+      "provider",
+      "status"
+    ],
+    "max_rows": 200
+  },
+  "public.customer_biller_accounts": {
+    "allowed_columns": [
+      "customer_biller_account_id",
+      "cif_no",
+      "biller_id",
+      "customer_bill_code",
+      "alias",
+      "status",
+      "last_paid_at"
+    ],
+    "sampleable_columns": [
+      "customer_bill_code",
+      "alias",
+      "status"
+    ],
+    "required_filter_columns": [
+      "cif_no"
+    ],
+    "allow_aggregates_without_filter": true,
+    "group_by_columns": [
+      "biller_id",
+      "status",
+      "cif_no"
+    ],
+    "max_rows": 100
+  },
+  "public.transaction_categories": {
+    "allowed_columns": [
+      "category_id",
+      "category_code",
+      "category_name",
+      "category_group"
+    ],
+    "sampleable_columns": [
+      "category_code",
+      "category_name",
+      "category_group"
+    ],
+    "required_filter_columns": [],
+    "allow_aggregates_without_filter": true,
+    "group_by_columns": [
+      "category_group",
+      "category_name"
+    ],
+    "max_rows": 200
+  },
+  "public.transactions": {
+    "allowed_columns": [
+      "transaction_id",
+      "transaction_ref",
+      "cif_no",
+      "account_no",
+      "card_id",
+      "transaction_time",
+      "amount",
+      "currency",
+      "direction",
+      "transaction_type",
+      "category_id",
+      "merchant_id",
+      "biller_id",
+      "beneficiary_id",
+      "counterparty_account_no",
+      "counterparty_bank_code",
+      "counterparty_name",
+      "channel",
+      "description",
+      "status",
+      "balance_after",
+      "external_reference",
+      "created_at"
+    ],
+    "sampleable_columns": [
+      "transaction_ref",
+      "cif_no",
+      "account_no",
+      "direction",
+      "transaction_type",
+      "channel",
+      "status"
+    ],
+    "required_filter_columns": [
+      "cif_no",
+      "transaction_time"
+    ],
+    "allow_aggregates_without_filter": false,
+    "group_by_columns": [
+      "direction",
+      "transaction_type",
+      "category_id",
+      "merchant_id",
+      "biller_id",
+      "channel",
+      "status",
+      "cif_no",
+      "account_no",
+      "transaction_time"
+    ],
+    "max_rows": 100
+  },
+  "public.action_requests": {
+    "allowed_columns": [
+      "action_id",
+      "cif_no",
+      "action_type",
+      "status",
+      "user_text",
+      "api_name",
+      "risk_score",
+      "risk_tier",
+      "requires_confirmation",
+      "requires_otp",
+      "created_at",
+      "updated_at"
+    ],
+    "sampleable_columns": [
+      "action_type",
+      "status",
+      "risk_tier",
+      "api_name"
+    ],
+    "required_filter_columns": [
+      "cif_no"
+    ],
+    "allow_aggregates_without_filter": true,
+    "group_by_columns": [
+      "action_type",
+      "status",
+      "risk_tier",
+      "cif_no",
+      "created_at"
+    ],
+    "max_rows": 100
+  },
+  "public.api_call_logs": {
+    "allowed_columns": [
+      "api_call_id",
+      "action_id",
+      "api_name",
+      "http_status",
+      "status",
+      "created_at"
+    ],
+    "sampleable_columns": [
+      "api_name",
+      "http_status",
+      "status"
+    ],
+    "required_filter_columns": [
+      "action_id"
+    ],
+    "allow_aggregates_without_filter": true,
+    "group_by_columns": [
+      "api_name",
+      "http_status",
+      "status",
+      "created_at"
+    ],
+    "max_rows": 100
+  },
+  "public.audit_logs": {
+    "allowed_columns": [
+      "audit_id",
+      "action_id",
+      "cif_no",
+      "event_type",
+      "actor",
+      "created_at"
+    ],
+    "sampleable_columns": [
+      "event_type",
+      "actor",
+      "cif_no"
+    ],
+    "required_filter_columns": [
+      "cif_no"
+    ],
+    "allow_aggregates_without_filter": true,
+    "group_by_columns": [
+      "event_type",
+      "actor",
+      "cif_no",
+      "created_at"
+    ],
+    "max_rows": 100
+  },
+  "public.fraud_reports": {
+    "allowed_columns": [
+      "report_id",
+      "reporter_cif_no",
+      "transaction_ref",
+      "reported_account_no",
+      "reported_bank_code",
+      "reported_customer_cif",
+      "fraud_type",
+      "contact_channel",
+      "aftermath",
+      "reason_text",
+      "has_evidence",
+      "confidence_score",
+      "status",
+      "created_at"
+    ],
+    "sampleable_columns": [
+      "fraud_type",
+      "contact_channel",
+      "aftermath",
+      "status"
+    ],
+    "required_filter_columns": [
+      "reporter_cif_no"
+    ],
+    "allow_aggregates_without_filter": true,
+    "group_by_columns": [
+      "fraud_type",
+      "contact_channel",
+      "aftermath",
+      "status",
+      "reporter_cif_no",
+      "created_at"
+    ],
+    "max_rows": 100
+  },
+  "public.reported_accounts": {
+    "allowed_columns": [
+      "reported_account_id",
+      "account_no",
+      "bank_code",
+      "linked_customer_cif",
+      "valid_report_count",
+      "unique_reporter_count",
+      "total_reported_amount",
+      "avg_confidence_score",
+      "risk_score",
+      "risk_level",
+      "status",
+      "first_reported_at",
+      "last_reported_at"
+    ],
+    "sampleable_columns": [
+      "account_no",
+      "bank_code",
+      "risk_level",
+      "status"
+    ],
+    "required_filter_columns": [],
+    "allow_aggregates_without_filter": true,
+    "group_by_columns": [
+      "bank_code",
+      "risk_level",
+      "status"
+    ],
+    "max_rows": 100
+  },
+  "public.reported_customers": {
+    "allowed_columns": [
+      "reported_customer_id",
+      "cif_no",
+      "reported_account_count",
+      "valid_report_count",
+      "total_reported_amount",
+      "risk_score",
+      "risk_level",
+      "status",
+      "created_at",
+      "updated_at"
+    ],
+    "sampleable_columns": [
+      "cif_no",
+      "risk_level",
+      "status"
+    ],
+    "required_filter_columns": [],
+    "allow_aggregates_without_filter": true,
+    "group_by_columns": [
+      "risk_level",
+      "status",
+      "cif_no"
+    ],
+    "max_rows": 100
+  },
+  "public.fraud_decisions": {
+    "allowed_columns": [
+      "decision_id",
+      "action_id",
+      "receiver_account_no",
+      "receiver_bank_code",
+      "matched_report_count",
+      "risk_score",
+      "risk_level",
+      "decision",
+      "created_at"
+    ],
+    "sampleable_columns": [
+      "risk_level",
+      "decision"
+    ],
+    "required_filter_columns": [
+      "action_id"
+    ],
+    "allow_aggregates_without_filter": true,
+    "group_by_columns": [
+      "risk_level",
+      "decision",
+      "receiver_bank_code",
+      "created_at"
+    ],
+    "max_rows": 100
+  }
+}

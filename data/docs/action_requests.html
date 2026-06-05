@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>action_requests</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
+            line-height: 1.6;
+            max-width: 960px;
+            margin: 0 auto;
+            padding: 2rem;
+            color: #1a1a1a;
+            background: #fafafa;
+        }
+        h1 {
+            color: #0d47a1;
+            border-bottom: 3px solid #0d47a1;
+            padding-bottom: 0.5rem;
+        }
+        h2 {
+            color: #1565c0;
+            margin-top: 2rem;
+            border-bottom: 1px solid #e0e0e0;
+            padding-bottom: 0.3rem;
+        }
+        h3 {
+            color: #1976d2;
+            margin-top: 1.5rem;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 1rem 0;
+            font-size: 0.9rem;
+            overflow-x: auto;
+            display: block;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 0.6rem 0.8rem;
+            text-align: left;
+        }
+        th {
+            background-color: #e3f2fd;
+            font-weight: 600;
+            color: #0d47a1;
+        }
+        tr:nth-child(even) {
+            background-color: #f5f5f5;
+        }
+        tr:hover {
+            background-color: #e8f4fd;
+        }
+        code {
+            background: #e8e8e8;
+            padding: 0.15rem 0.4rem;
+            border-radius: 3px;
+            font-size: 0.88em;
+            font-family: 'Fira Code', 'Consolas', monospace;
+        }
+        pre {
+            background: #263238;
+            color: #eeffff;
+            padding: 1rem 1.2rem;
+            border-radius: 6px;
+            overflow-x: auto;
+            font-size: 0.88rem;
+        }
+        pre code {
+            background: none;
+            padding: 0;
+            color: inherit;
+        }
+        strong {
+            color: #b71c1c;
+        }
+        ul, ol {
+            padding-left: 1.5rem;
+        }
+        li {
+            margin-bottom: 0.3rem;
+        }
+        blockquote {
+            border-left: 4px solid #1976d2;
+            margin: 1rem 0;
+            padding: 0.5rem 1rem;
+            background: #e3f2fd;
+        }
+        .container {
+            background: white;
+            padding: 2rem 3rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+<h1>action_requests</h1>
+<h2>1. Mục đích bảng</h2>
+<p>Lưu trữ các yêu cầu hành động (action draft) trong verified workflow. Khi user yêu cầu thực hiện giao dịch (chuyển tiền, thanh toán, khóa thẻ...), agent tạo một action_request chứa toàn bộ thông tin đã resolve, API payload, risk assessment, và trạng thái workflow.</p>
+<p><strong>Nhóm:</strong> Workflow/action store</p>
+<h2>2. Ngữ cảnh nghiệp vụ</h2>
+<ul>
+<li>Bảng này là <strong>trung tâm của verified workflow</strong>. Mọi hành động nhạy cảm đều đi qua đây.</li>
+<li>Workflow: User request → Intent → Resolve entities → Risk check → Confirmation → OTP → Execute.</li>
+<li>Agent dùng bảng này để:</li>
+<li>Lưu draft action khi bắt đầu xử lý yêu cầu.</li>
+<li>Track trạng thái workflow (DRAFT → READY → PENDING_CONFIRMATION → PENDING_OTP → EXECUTED).</li>
+<li>Lưu API payload đã resolve (sẵn sàng gọi external API).</li>
+<li>Ghi nhận risk score và risk tier.</li>
+<li>Xác định action nào cần confirmation, cần OTP.</li>
+<li>Bảng này <strong>không phải</strong> lịch sử giao dịch. Một action_request có thể FAILED hoặc BLOCKED mà không tạo transaction.</li>
+<li><code>api_payload</code> chứa payload sẵn sàng gửi external API — đây là output của bước entity resolution.</li>
+<li><code>resolved_entities</code> chứa entities đã extract từ user text.</li>
+<li><code>missing_fields</code> chứa fields cần hỏi thêm user.</li>
+</ul>
+<h2>3. Columns</h2>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Meaning</th>
+<th>Example Values From Data</th>
+<th>Nullable</th>
+<th>Key / Relationship</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>action_id</td>
+<td>UUID string</td>
+<td>ID kỹ thuật action</td>
+<td><code>10a66751-e588-52b3-8c89-c500d10fd465</code></td>
+<td>No</td>
+<td>PK</td>
+<td>Dùng làm FK cho api_call_logs và audit_logs</td>
+</tr>
+<tr>
+<td>cif_no</td>
+<td>string</td>
+<td>Mã khách hàng yêu cầu</td>
+<td><code>CIF000066</code>, <code>CIF000039</code>, <code>CIF000080</code></td>
+<td>No</td>
+<td>FK → customers.cif_no</td>
+<td>Filter theo khách hàng</td>
+</tr>
+<tr>
+<td>action_type</td>
+<td>enum string</td>
+<td>Loại hành động</td>
+<td><code>TRANSFER</code>, <code>BILL_PAYMENT</code>, <code>PHONE_TOPUP</code>, <code>CARD_LOCK</code>, <code>CARD_UNLOCK</code>, <code>CARD_LIMIT_CHANGE</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>Xác định workflow và API cần gọi</td>
+</tr>
+<tr>
+<td>status</td>
+<td>enum string</td>
+<td>Trạng thái workflow</td>
+<td><code>EXECUTED</code>, <code>READY_TO_EXECUTE</code>, <code>PENDING_OTP</code>, <code>PENDING_CONFIRMATION</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>Theo dõi bước hiện tại</td>
+</tr>
+<tr>
+<td>user_text</td>
+<td>string</td>
+<td>Câu nói gốc của user</td>
+<td><code>Chuyen 50 trieu cho nguoi nhan moi</code>, <code>Gui tien cho me 5 trieu</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>Input ban đầu từ user</td>
+</tr>
+<tr>
+<td>api_name</td>
+<td>string</td>
+<td>Tên API sẽ gọi</td>
+<td><code>external_transfer_api</code>, <code>external_bill_payment_api</code>, <code>external_phone_topup_api</code>, <code>external_card_service_api</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>Xác định external API endpoint</td>
+</tr>
+<tr>
+<td>api_payload</td>
+<td>JSON string</td>
+<td>Payload sẵn sàng gọi API</td>
+<td><code>{"from_account_no": "92644220969", "to_account_no": "872975859883", ...}</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>Output của entity resolution</td>
+</tr>
+<tr>
+<td>resolved_entities</td>
+<td>JSON string</td>
+<td>Entities đã extract</td>
+<td><code>{"beneficiary_name": "Hoang Van Uyen", "amount": 30538599, "bank_code": "TCB"}</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>Kết quả NLU/resolution</td>
+</tr>
+<tr>
+<td>missing_fields</td>
+<td>JSON string</td>
+<td>Fields cần hỏi thêm</td>
+<td><code>[]</code>, <code>["amount"]</code>, <code>["to_account_no"]</code>, <code>["phone_number"]</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>Nếu không rỗng → status = MISSING_INFO</td>
+</tr>
+<tr>
+<td>risk_score</td>
+<td>numeric</td>
+<td>Điểm risk (0.00-1.00)</td>
+<td><code>0.21</code>, <code>0.17</code>, <code>0.16</code>, <code>0.63</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>Guardian tính toán</td>
+</tr>
+<tr>
+<td>risk_tier</td>
+<td>enum string</td>
+<td>Mức risk</td>
+<td><code>GREEN</code>, <code>YELLOW</code>, <code>ORANGE</code>, <code>RED</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>Quyết định cần confirm/OTP/block</td>
+</tr>
+<tr>
+<td>requires_confirmation</td>
+<td>boolean</td>
+<td>Cần user xác nhận</td>
+<td><code>True</code>, <code>False</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>Hầu hết action đều cần</td>
+</tr>
+<tr>
+<td>requires_otp</td>
+<td>boolean</td>
+<td>Cần OTP</td>
+<td><code>True</code>, <code>False</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>Giao dịch trên ngưỡng hoặc risk cao</td>
+</tr>
+<tr>
+<td>created_at</td>
+<td>timestamp string</td>
+<td>Thời điểm tạo</td>
+<td><code>2026-05-22 08:25:12</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td>updated_at</td>
+<td>timestamp string</td>
+<td>Lần cập nhật cuối</td>
+<td><code>2026-05-22 08:26:10</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>Mỗi bước workflow cập nhật</td>
+</tr>
+</tbody>
+</table>
+<h2>4. Important Values / Enums</h2>
+<h3>action_type</h3>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Meaning</th>
+<th>API tương ứng</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>TRANSFER</td>
+<td>Chuyển khoản ngân hàng</td>
+<td>external_transfer_api</td>
+</tr>
+<tr>
+<td>BILL_PAYMENT</td>
+<td>Thanh toán hóa đơn</td>
+<td>external_bill_payment_api</td>
+</tr>
+<tr>
+<td>PHONE_TOPUP</td>
+<td>Nạp điện thoại</td>
+<td>external_phone_topup_api</td>
+</tr>
+<tr>
+<td>CARD_LOCK</td>
+<td>Khóa thẻ</td>
+<td>external_card_service_api</td>
+</tr>
+<tr>
+<td>CARD_UNLOCK</td>
+<td>Mở khóa thẻ</td>
+<td>external_card_service_api</td>
+</tr>
+<tr>
+<td>CARD_LIMIT_CHANGE</td>
+<td>Thay đổi hạn mức thẻ</td>
+<td>external_card_service_api</td>
+</tr>
+</tbody>
+</table>
+<h3>status (lifecycle)</h3>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Meaning</th>
+<th>Next Steps</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>DRAFT</td>
+<td>Mới tạo, đang resolve entities</td>
+<td>→ MISSING_INFO hoặc READY_TO_EXECUTE</td>
+</tr>
+<tr>
+<td>MISSING_INFO</td>
+<td>Thiếu thông tin, cần hỏi user</td>
+<td>→ DRAFT (sau khi user cung cấp)</td>
+</tr>
+<tr>
+<td>READY_TO_EXECUTE</td>
+<td>Đã resolve đủ, sẵn sàng</td>
+<td>→ PENDING_CONFIRMATION</td>
+</tr>
+<tr>
+<td>PENDING_CONFIRMATION</td>
+<td>Chờ user xác nhận</td>
+<td>→ PENDING_OTP hoặc EXECUTED</td>
+</tr>
+<tr>
+<td>PENDING_OTP</td>
+<td>Chờ OTP</td>
+<td>→ EXECUTED hoặc FAILED</td>
+</tr>
+<tr>
+<td>EXECUTED</td>
+<td>Đã thực thi thành công</td>
+<td>Terminal state</td>
+</tr>
+<tr>
+<td>FAILED</td>
+<td>Thất bại</td>
+<td>Terminal state</td>
+</tr>
+<tr>
+<td>BLOCKED</td>
+<td>Guardian chặn (risk quá cao)</td>
+<td>Terminal state</td>
+</tr>
+</tbody>
+</table>
+<h3>risk_tier</h3>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Meaning</th>
+<th>Action</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GREEN</td>
+<td>Risk thấp (&lt; 0.3)</td>
+<td>Confirm + có thể không cần OTP</td>
+</tr>
+<tr>
+<td>YELLOW</td>
+<td>Risk trung bình (0.3-0.5)</td>
+<td>Confirm + OTP</td>
+</tr>
+<tr>
+<td>ORANGE</td>
+<td>Risk cao (0.5-0.7)</td>
+<td>Confirm + OTP + cảnh báo</td>
+</tr>
+<tr>
+<td>RED</td>
+<td>Risk rất cao (&gt; 0.7)</td>
+<td>Block hoặc require enhanced verification</td>
+</tr>
+</tbody>
+</table>
+<h3>api_payload structure (TRANSFER example)</h3>
+<div class="codehilite"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;from_account_no&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;92644220969&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;to_account_no&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;872975859883&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;to_bank_code&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;TCB&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;to_name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Hoang Van Uyen&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;amount&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">30538599</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;currency&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;VND&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Chuyen tien cho Uyen&quot;</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<h2>5. Relationships</h2>
+<ul>
+<li><code>action_requests.cif_no</code> → <code>customers.cif_no</code></li>
+<li><code>action_requests.action_id</code> được tham chiếu bởi:</li>
+<li><code>api_call_logs.action_id</code></li>
+<li><code>audit_logs.action_id</code></li>
+</ul>
+<h2>6. Simple Usage Examples</h2>
+<h3>Xem action gần đây của khách hàng</h3>
+<div class="codehilite"><pre><span></span><code><span class="k">SELECT</span><span class="w"> </span><span class="n">action_id</span><span class="p">,</span><span class="w"> </span><span class="n">action_type</span><span class="p">,</span><span class="w"> </span><span class="n">status</span><span class="p">,</span><span class="w"> </span><span class="n">user_text</span><span class="p">,</span><span class="w"> </span><span class="n">risk_tier</span><span class="p">,</span><span class="w"> </span><span class="n">created_at</span>
+<span class="k">FROM</span><span class="w"> </span><span class="n">action_requests</span>
+<span class="k">WHERE</span><span class="w"> </span><span class="n">cif_no</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;CIF000001&#39;</span>
+<span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">created_at</span><span class="w"> </span><span class="k">DESC</span>
+<span class="k">LIMIT</span><span class="w"> </span><span class="mi">5</span><span class="p">;</span>
+</code></pre></div>
+
+<p>Dùng khi cần trace lại workflow gần đây.</p>
+<h3>Tìm action đang chờ xử lý</h3>
+<div class="codehilite"><pre><span></span><code><span class="k">SELECT</span><span class="w"> </span><span class="n">action_id</span><span class="p">,</span><span class="w"> </span><span class="n">action_type</span><span class="p">,</span><span class="w"> </span><span class="n">status</span><span class="p">,</span><span class="w"> </span><span class="n">user_text</span>
+<span class="k">FROM</span><span class="w"> </span><span class="n">action_requests</span>
+<span class="k">WHERE</span><span class="w"> </span><span class="n">cif_no</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;CIF000066&#39;</span><span class="w"> </span><span class="k">AND</span><span class="w"> </span><span class="n">status</span><span class="w"> </span><span class="k">IN</span><span class="w"> </span><span class="p">(</span><span class="s1">&#39;PENDING_CONFIRMATION&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;PENDING_OTP&#39;</span><span class="p">,</span><span class="w"> </span><span class="s1">&#39;READY_TO_EXECUTE&#39;</span><span class="p">);</span>
+</code></pre></div>
+
+<p>Dùng khi cần resume workflow bị gián đoạn.</p>
+<h3>Xem chi tiết API payload của một action</h3>
+<div class="codehilite"><pre><span></span><code><span class="k">SELECT</span><span class="w"> </span><span class="n">action_type</span><span class="p">,</span><span class="w"> </span><span class="n">api_name</span><span class="p">,</span><span class="w"> </span><span class="n">api_payload</span><span class="p">,</span><span class="w"> </span><span class="n">resolved_entities</span><span class="p">,</span><span class="w"> </span><span class="n">risk_score</span><span class="p">,</span><span class="w"> </span><span class="n">risk_tier</span>
+<span class="k">FROM</span><span class="w"> </span><span class="n">action_requests</span>
+<span class="k">WHERE</span><span class="w"> </span><span class="n">action_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;10a66751-e588-52b3-8c89-c500d10fd465&#39;</span><span class="p">;</span>
+</code></pre></div>
+
+<p>Dùng khi cần debug hoặc review payload trước khi execute.</p>
+<h3>Thống kê action theo trạng thái</h3>
+<div class="codehilite"><pre><span></span><code><span class="k">SELECT</span><span class="w"> </span><span class="n">status</span><span class="p">,</span><span class="w"> </span><span class="k">COUNT</span><span class="p">(</span><span class="o">*</span><span class="p">)</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="k">count</span>
+<span class="k">FROM</span><span class="w"> </span><span class="n">action_requests</span>
+<span class="k">WHERE</span><span class="w"> </span><span class="n">cif_no</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;CIF000066&#39;</span>
+<span class="k">GROUP</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">status</span><span class="p">;</span>
+</code></pre></div>
+
+<p>Dùng cho reporting/monitoring workflow.</p>
+</div>
+</body>
+</html>

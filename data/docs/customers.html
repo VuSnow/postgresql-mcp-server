@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>customers</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
+            line-height: 1.6;
+            max-width: 960px;
+            margin: 0 auto;
+            padding: 2rem;
+            color: #1a1a1a;
+            background: #fafafa;
+        }
+        h1 {
+            color: #0d47a1;
+            border-bottom: 3px solid #0d47a1;
+            padding-bottom: 0.5rem;
+        }
+        h2 {
+            color: #1565c0;
+            margin-top: 2rem;
+            border-bottom: 1px solid #e0e0e0;
+            padding-bottom: 0.3rem;
+        }
+        h3 {
+            color: #1976d2;
+            margin-top: 1.5rem;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 1rem 0;
+            font-size: 0.9rem;
+            overflow-x: auto;
+            display: block;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 0.6rem 0.8rem;
+            text-align: left;
+        }
+        th {
+            background-color: #e3f2fd;
+            font-weight: 600;
+            color: #0d47a1;
+        }
+        tr:nth-child(even) {
+            background-color: #f5f5f5;
+        }
+        tr:hover {
+            background-color: #e8f4fd;
+        }
+        code {
+            background: #e8e8e8;
+            padding: 0.15rem 0.4rem;
+            border-radius: 3px;
+            font-size: 0.88em;
+            font-family: 'Fira Code', 'Consolas', monospace;
+        }
+        pre {
+            background: #263238;
+            color: #eeffff;
+            padding: 1rem 1.2rem;
+            border-radius: 6px;
+            overflow-x: auto;
+            font-size: 0.88rem;
+        }
+        pre code {
+            background: none;
+            padding: 0;
+            color: inherit;
+        }
+        strong {
+            color: #b71c1c;
+        }
+        ul, ol {
+            padding-left: 1.5rem;
+        }
+        li {
+            margin-bottom: 0.3rem;
+        }
+        blockquote {
+            border-left: 4px solid #1976d2;
+            margin: 1rem 0;
+            padding: 0.5rem 1rem;
+            background: #e3f2fd;
+        }
+        .container {
+            background: white;
+            padding: 2rem 3rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+<h1>customers</h1>
+<h2>1. Mục đích bảng</h2>
+<p>Lưu thông tin master data khách hàng cá nhân trong hệ thống banking agent. Đây là bảng gốc để xác định danh tính khách hàng khi agent xử lý yêu cầu.</p>
+<p><strong>Nhóm:</strong> Master/reference data</p>
+<h2>2. Ngữ cảnh nghiệp vụ</h2>
+<ul>
+<li>Bảng này tồn tại để agent biết khách hàng nào đang tương tác, dựa trên <code>cif_no</code>.</li>
+<li>Agent dùng bảng này để xác minh danh tính khách hàng, kiểm tra trạng thái tài khoản (ACTIVE/SUSPENDED/CLOSED), và lấy thông tin liên lạc.</li>
+<li>Phục vụ use case: xác thực customer context trước khi thực thi bất kỳ workflow nào (chuyển tiền, thanh toán, khóa thẻ...).</li>
+<li>Bảng này <strong>không phải</strong> bảng giao dịch. Không lưu lịch sử hành vi hay số dư.</li>
+<li><code>cif_no</code> là khóa nghiệp vụ chính, được dùng xuyên suốt toàn bộ hệ thống để liên kết khách hàng với accounts, cards, transactions, action_requests, audit_logs.</li>
+</ul>
+<h2>3. Columns</h2>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Meaning</th>
+<th>Example Values From Data</th>
+<th>Nullable</th>
+<th>Key / Relationship</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>customer_id</td>
+<td>UUID string</td>
+<td>ID kỹ thuật duy nhất của khách hàng</td>
+<td><code>7650a268-4eb3-51ea-ab03-4f6c2ff80501</code></td>
+<td>No</td>
+<td>PK</td>
+<td>Không dùng trong business logic, chỉ dùng làm primary key</td>
+</tr>
+<tr>
+<td>cif_no</td>
+<td>string</td>
+<td>Mã khách hàng nghiệp vụ (Customer Information File)</td>
+<td><code>CIF000001</code>, <code>CIF000002</code>, <code>CIF000003</code></td>
+<td>No</td>
+<td>Unique</td>
+<td>Khóa nghiệp vụ chính, được tham chiếu bởi hầu hết các bảng khác</td>
+</tr>
+<tr>
+<td>full_name</td>
+<td>string</td>
+<td>Họ tên đầy đủ khách hàng</td>
+<td><code>Tran Van Lan</code>, <code>Do Huu An</code>, <code>Pham Thanh Dung</code></td>
+<td>No</td>
+<td>-</td>
+<td>Dùng để hiển thị, xác nhận danh tính</td>
+</tr>
+<tr>
+<td>phone_number</td>
+<td>string</td>
+<td>Số điện thoại</td>
+<td><code>0733218196</code>, <code>0386379402</code>, <code>0961559407</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>Dùng cho OTP, liên lạc</td>
+</tr>
+<tr>
+<td>email</td>
+<td>string</td>
+<td>Email</td>
+<td><code>tran.van.lan@example.com</code>, <code>do.huu.an@example.com</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>Dùng cho thông báo</td>
+</tr>
+<tr>
+<td>kyc_level</td>
+<td>enum string</td>
+<td>Mức xác minh KYC</td>
+<td><code>BASIC</code>, <code>VERIFIED</code>, <code>ENHANCED</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>Ảnh hưởng đến hạn mức giao dịch và permission</td>
+</tr>
+<tr>
+<td>status</td>
+<td>enum string</td>
+<td>Trạng thái khách hàng</td>
+<td><code>ACTIVE</code>, <code>SUSPENDED</code>, <code>CLOSED</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>Agent chỉ xử lý yêu cầu cho khách hàng ACTIVE</td>
+</tr>
+<tr>
+<td>created_at</td>
+<td>timestamp string</td>
+<td>Thời điểm tạo bản ghi</td>
+<td><code>2023-12-28 10:13:36</code>, <code>2023-08-30 12:41:45</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<h2>4. Important Values / Enums</h2>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Value</th>
+<th>Meaning</th>
+<th>Example Use Case</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>kyc_level</td>
+<td>BASIC</td>
+<td>Xác minh cơ bản, hạn mức thấp</td>
+<td>Giới hạn số tiền chuyển khoản/ngày</td>
+</tr>
+<tr>
+<td>kyc_level</td>
+<td>VERIFIED</td>
+<td>Đã xác minh đầy đủ CMND/CCCD</td>
+<td>Cho phép giao dịch hạn mức trung bình</td>
+</tr>
+<tr>
+<td>kyc_level</td>
+<td>ENHANCED</td>
+<td>Xác minh nâng cao (video call, eKYC)</td>
+<td>Cho phép giao dịch hạn mức cao</td>
+</tr>
+<tr>
+<td>status</td>
+<td>ACTIVE</td>
+<td>Đang hoạt động</td>
+<td>Agent xử lý yêu cầu bình thường</td>
+</tr>
+<tr>
+<td>status</td>
+<td>SUSPENDED</td>
+<td>Tạm khóa</td>
+<td>Agent từ chối mọi yêu cầu giao dịch</td>
+</tr>
+<tr>
+<td>status</td>
+<td>CLOSED</td>
+<td>Đã đóng</td>
+<td>Agent từ chối mọi yêu cầu</td>
+</tr>
+</tbody>
+</table>
+<h2>5. Relationships</h2>
+<ul>
+<li><code>customers.cif_no</code> được tham chiếu bởi:</li>
+<li><code>accounts.cif_no</code></li>
+<li><code>cards.cif_no</code></li>
+<li><code>beneficiaries.cif_no</code></li>
+<li><code>customer_biller_accounts.cif_no</code></li>
+<li><code>transactions.cif_no</code></li>
+<li><code>action_requests.cif_no</code></li>
+<li><code>audit_logs.cif_no</code></li>
+</ul>
+<h2>6. Simple Usage Examples</h2>
+<h3>Lấy thông tin khách hàng theo CIF</h3>
+<div class="codehilite"><pre><span></span><code><span class="k">SELECT</span><span class="w"> </span><span class="n">customer_id</span><span class="p">,</span><span class="w"> </span><span class="n">cif_no</span><span class="p">,</span><span class="w"> </span><span class="n">full_name</span><span class="p">,</span><span class="w"> </span><span class="n">phone_number</span><span class="p">,</span><span class="w"> </span><span class="n">kyc_level</span><span class="p">,</span><span class="w"> </span><span class="n">status</span>
+<span class="k">FROM</span><span class="w"> </span><span class="n">customers</span>
+<span class="k">WHERE</span><span class="w"> </span><span class="n">cif_no</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;CIF000001&#39;</span><span class="p">;</span>
+</code></pre></div>
+
+<p>Dùng khi agent cần xác minh danh tính khách hàng đang tương tác.</p>
+<h3>Kiểm tra khách hàng có đang active không</h3>
+<div class="codehilite"><pre><span></span><code><span class="k">SELECT</span><span class="w"> </span><span class="n">cif_no</span><span class="p">,</span><span class="w"> </span><span class="n">full_name</span><span class="p">,</span><span class="w"> </span><span class="n">status</span>
+<span class="k">FROM</span><span class="w"> </span><span class="n">customers</span>
+<span class="k">WHERE</span><span class="w"> </span><span class="n">cif_no</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;CIF000001&#39;</span><span class="w"> </span><span class="k">AND</span><span class="w"> </span><span class="n">status</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;ACTIVE&#39;</span><span class="p">;</span>
+</code></pre></div>
+
+<p>Dùng trước khi thực thi bất kỳ action nào — chỉ cho phép khách hàng ACTIVE.</p>
+<h3>Tìm khách hàng theo tên</h3>
+<div class="codehilite"><pre><span></span><code><span class="k">SELECT</span><span class="w"> </span><span class="n">cif_no</span><span class="p">,</span><span class="w"> </span><span class="n">full_name</span><span class="p">,</span><span class="w"> </span><span class="n">phone_number</span>
+<span class="k">FROM</span><span class="w"> </span><span class="n">customers</span>
+<span class="k">WHERE</span><span class="w"> </span><span class="n">full_name</span><span class="w"> </span><span class="k">ILIKE</span><span class="w"> </span><span class="s1">&#39;%Tran%&#39;</span><span class="p">;</span>
+</code></pre></div>
+
+<p>Dùng khi cần tìm kiếm khách hàng theo tên (ít dùng trong agent flow, chủ yếu cho admin).</p>
+</div>
+</body>
+</html>

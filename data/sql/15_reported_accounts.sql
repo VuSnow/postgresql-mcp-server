@@ -1,0 +1,15 @@
+-- reported_accounts data
+BEGIN;
+
+-- reported_accounts (8 rows)
+INSERT INTO reported_accounts (reported_account_id, account_no, bank_code, linked_customer_cif, valid_report_count, unique_reporter_count, total_reported_amount, avg_confidence_score, risk_score, risk_level, status, first_reported_at, last_reported_at) VALUES
+  ('f420f3a9-42b3-5536-9d7b-a7e0a3aec844', '43275604177', 'ACB', NULL, 1, 1, 22238685, 80, 0.95, 'CRITICAL', 'ACTIVE', '2026-05-22 00:02:36', '2026-05-22 00:02:36'),
+  ('562536e4-5ea2-5aaa-b816-a0699f710fb6', '5347355289', 'ACB', NULL, 1, 1, 3198935, 70, 0.25, 'LOW', 'ACTIVE', '2026-05-01 16:39:44', '2026-05-01 16:39:44'),
+  ('b9474b94-10b8-549e-bb72-ce33ad23a3a7', '0094318143', 'VIB', NULL, 1, 1, 32520461, 50, 0.25, 'LOW', 'ACTIVE', '2026-05-01 11:21:33', '2026-05-01 11:21:33'),
+  ('65622601-07ee-5f09-9e22-f4d37c7c61ab', '8812520566', 'VPB', NULL, 1, 1, 6046022, 100, 0.95, 'CRITICAL', 'ACTIVE', '2026-05-13 21:00:24', '2026-05-13 21:00:24'),
+  ('45adfeb9-d3ce-5d47-a48a-8d5bda314223', '1832582386870', 'VCB', NULL, 1, 1, 20646691, 80, 0.95, 'CRITICAL', 'ACTIVE', '2026-05-28 05:13:37', '2026-05-28 05:13:37'),
+  ('e9508d2d-13a5-5288-a6cf-7024eca3cc30', '5215681820967', 'VIB', NULL, 1, 1, 42524371, 80, 0.95, 'CRITICAL', 'ACTIVE', '2026-05-15 06:54:58', '2026-05-15 06:54:58'),
+  ('6df2e1d5-5d96-57cf-89f9-51324a31eeb2', '024120957907', 'CTG', NULL, 1, 1, 26083708, 70, 0.25, 'LOW', 'ACTIVE', '2026-06-01 01:07:25', '2026-06-01 01:07:25'),
+  ('c09a1cfe-7c54-5404-906c-b336f8ba5b67', '4125777118', 'CTG', NULL, 1, 1, 15955609, 65, 0.25, 'LOW', 'ACTIVE', '2026-05-26 20:10:48', '2026-05-26 20:10:48');
+
+COMMIT;

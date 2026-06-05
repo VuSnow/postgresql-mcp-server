@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>transaction_categories</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
+            line-height: 1.6;
+            max-width: 960px;
+            margin: 0 auto;
+            padding: 2rem;
+            color: #1a1a1a;
+            background: #fafafa;
+        }
+        h1 {
+            color: #0d47a1;
+            border-bottom: 3px solid #0d47a1;
+            padding-bottom: 0.5rem;
+        }
+        h2 {
+            color: #1565c0;
+            margin-top: 2rem;
+            border-bottom: 1px solid #e0e0e0;
+            padding-bottom: 0.3rem;
+        }
+        h3 {
+            color: #1976d2;
+            margin-top: 1.5rem;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 1rem 0;
+            font-size: 0.9rem;
+            overflow-x: auto;
+            display: block;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 0.6rem 0.8rem;
+            text-align: left;
+        }
+        th {
+            background-color: #e3f2fd;
+            font-weight: 600;
+            color: #0d47a1;
+        }
+        tr:nth-child(even) {
+            background-color: #f5f5f5;
+        }
+        tr:hover {
+            background-color: #e8f4fd;
+        }
+        code {
+            background: #e8e8e8;
+            padding: 0.15rem 0.4rem;
+            border-radius: 3px;
+            font-size: 0.88em;
+            font-family: 'Fira Code', 'Consolas', monospace;
+        }
+        pre {
+            background: #263238;
+            color: #eeffff;
+            padding: 1rem 1.2rem;
+            border-radius: 6px;
+            overflow-x: auto;
+            font-size: 0.88rem;
+        }
+        pre code {
+            background: none;
+            padding: 0;
+            color: inherit;
+        }
+        strong {
+            color: #b71c1c;
+        }
+        ul, ol {
+            padding-left: 1.5rem;
+        }
+        li {
+            margin-bottom: 0.3rem;
+        }
+        blockquote {
+            border-left: 4px solid #1976d2;
+            margin: 1rem 0;
+            padding: 0.5rem 1rem;
+            background: #e3f2fd;
+        }
+        .container {
+            background: white;
+            padding: 2rem 3rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+<h1>transaction_categories</h1>
+<h2>1. Mục đích bảng</h2>
+<p>Lưu danh mục phân loại giao dịch. Mỗi giao dịch trong bảng <code>transactions</code> được gắn một <code>category_id</code> để phân loại chi tiêu, thu nhập, hóa đơn, phí.</p>
+<p><strong>Nhóm:</strong> Master/reference data</p>
+<h2>2. Ngữ cảnh nghiệp vụ</h2>
+<ul>
+<li>Bảng này tồn tại để hỗ trợ phân tích chi tiêu và phân loại giao dịch cho reporting/Text2SQL.</li>
+<li>Agent dùng bảng này để:</li>
+<li>Phân loại giao dịch khi user hỏi "tháng này tôi chi bao nhiêu cho ăn uống".</li>
+<li>Group giao dịch theo <code>category_group</code> (SPENDING, TRANSFER, INCOME, BILL, FEE, CASH, OTHER).</li>
+<li>Translate <code>category_code</code> thành tên tiếng Việt cho user.</li>
+<li>Phục vụ use case: phân tích chi tiêu, báo cáo tài chính cá nhân.</li>
+<li>Bảng này <strong>chỉ là reference</strong> — agent không tạo category mới.</li>
+</ul>
+<h2>3. Columns</h2>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Meaning</th>
+<th>Example Values From Data</th>
+<th>Nullable</th>
+<th>Key / Relationship</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>category_id</td>
+<td>UUID string</td>
+<td>ID kỹ thuật danh mục</td>
+<td><code>fa45defc-de8f-5173-8b0a-366b8533fd0e</code></td>
+<td>No</td>
+<td>PK</td>
+<td>Dùng làm FK trong transactions</td>
+</tr>
+<tr>
+<td>category_code</td>
+<td>string</td>
+<td>Mã danh mục unique</td>
+<td><code>FOOD</code>, <code>SHOPPING</code>, <code>TRANSPORT</code>, <code>SALARY</code></td>
+<td>No</td>
+<td>Unique</td>
+<td>Dùng trong query filter</td>
+</tr>
+<tr>
+<td>category_name</td>
+<td>string</td>
+<td>Tên tiếng Việt</td>
+<td><code>An uong</code>, <code>Mua sam</code>, <code>Di chuyen</code>, <code>Luong</code></td>
+<td>No</td>
+<td>-</td>
+<td>Hiển thị cho user</td>
+</tr>
+<tr>
+<td>category_group</td>
+<td>string</td>
+<td>Nhóm lớn</td>
+<td><code>SPENDING</code>, <code>TRANSFER</code>, <code>INCOME</code>, <code>BILL</code>, <code>FEE</code>, <code>CASH</code>, <code>OTHER</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>Dùng aggregate cấp cao</td>
+</tr>
+</tbody>
+</table>
+<h2>4. Important Values / Enums</h2>
+<h3>Nhóm SPENDING (chi tiêu)</h3>
+<table>
+<thead>
+<tr>
+<th>category_code</th>
+<th>category_name</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>FOOD</td>
+<td>An uong</td>
+<td>Chi tiêu ăn uống</td>
+</tr>
+<tr>
+<td>SHOPPING</td>
+<td>Mua sam</td>
+<td>Mua sắm</td>
+</tr>
+<tr>
+<td>TRANSPORT</td>
+<td>Di chuyen</td>
+<td>Di chuyển (Grab, taxi)</td>
+</tr>
+<tr>
+<td>ENTERTAINMENT</td>
+<td>Giai tri</td>
+<td>Giải trí (phim, game)</td>
+</tr>
+<tr>
+<td>GROCERIES</td>
+<td>Sieu thi / Tap hoa</td>
+<td>Siêu thị, tạp hóa</td>
+</tr>
+<tr>
+<td>CARD_PAYMENT</td>
+<td>Thanh toan the</td>
+<td>Thanh toán thẻ chung</td>
+</tr>
+</tbody>
+</table>
+<h3>Nhóm TRANSFER (chuyển khoản)</h3>
+<table>
+<thead>
+<tr>
+<th>category_code</th>
+<th>category_name</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>TRANSFER</td>
+<td>Chuyen khoan</td>
+<td>Chuyển khoản ngân hàng</td>
+</tr>
+<tr>
+<td>FAMILY_TRANSFER</td>
+<td>Chuyen khoan gia dinh</td>
+<td>Chuyển tiền gia đình</td>
+</tr>
+<tr>
+<td>RENT</td>
+<td>Tien thue nha</td>
+<td>Tiền thuê nhà</td>
+</tr>
+</tbody>
+</table>
+<h3>Nhóm INCOME (thu nhập)</h3>
+<table>
+<thead>
+<tr>
+<th>category_code</th>
+<th>category_name</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SALARY</td>
+<td>Luong</td>
+<td>Nhận lương</td>
+</tr>
+<tr>
+<td>INTEREST</td>
+<td>Lai suat</td>
+<td>Lãi suất tiết kiệm</td>
+</tr>
+<tr>
+<td>REFUND</td>
+<td>Hoan tien</td>
+<td>Hoàn tiền</td>
+</tr>
+<tr>
+<td>CASH_DEPOSIT</td>
+<td>Nap tien mat</td>
+<td>Nạp tiền mặt</td>
+</tr>
+</tbody>
+</table>
+<h3>Nhóm BILL (hóa đơn)</h3>
+<table>
+<thead>
+<tr>
+<th>category_code</th>
+<th>category_name</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>BILL_ELECTRICITY</td>
+<td>Hoa don dien</td>
+<td>Hóa đơn điện</td>
+</tr>
+<tr>
+<td>BILL_WATER</td>
+<td>Hoa don nuoc</td>
+<td>Hóa đơn nước</td>
+</tr>
+<tr>
+<td>BILL_INTERNET</td>
+<td>Hoa don internet</td>
+<td>Hóa đơn internet</td>
+</tr>
+<tr>
+<td>PHONE_TOPUP</td>
+<td>Nap dien thoai</td>
+<td>Nạp điện thoại</td>
+</tr>
+</tbody>
+</table>
+<h3>Nhóm khác</h3>
+<table>
+<thead>
+<tr>
+<th>category_code</th>
+<th>category_name</th>
+<th>category_group</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>BANK_FEE</td>
+<td>Phi ngan hang</td>
+<td>FEE</td>
+</tr>
+<tr>
+<td>CASH_WITHDRAWAL</td>
+<td>Rut tien mat</td>
+<td>CASH</td>
+</tr>
+<tr>
+<td>OTHER</td>
+<td>Khac</td>
+<td>OTHER</td>
+</tr>
+</tbody>
+</table>
+<h2>5. Relationships</h2>
+<ul>
+<li><code>transaction_categories.category_id</code> được tham chiếu bởi <code>transactions.category_id</code></li>
+</ul>
+<h2>6. Simple Usage Examples</h2>
+<h3>Phân tích chi tiêu theo danh mục</h3>
+<div class="codehilite"><pre><span></span><code><span class="k">SELECT</span><span class="w"> </span><span class="n">tc</span><span class="p">.</span><span class="n">category_name</span><span class="p">,</span><span class="w"> </span><span class="k">SUM</span><span class="p">(</span><span class="n">t</span><span class="p">.</span><span class="n">amount</span><span class="p">)</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="n">total</span>
+<span class="k">FROM</span><span class="w"> </span><span class="n">transactions</span><span class="w"> </span><span class="n">t</span>
+<span class="k">JOIN</span><span class="w"> </span><span class="n">transaction_categories</span><span class="w"> </span><span class="n">tc</span><span class="w"> </span><span class="k">ON</span><span class="w"> </span><span class="n">t</span><span class="p">.</span><span class="n">category_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">tc</span><span class="p">.</span><span class="n">category_id</span>
+<span class="k">WHERE</span><span class="w"> </span><span class="n">t</span><span class="p">.</span><span class="n">cif_no</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;CIF000001&#39;</span><span class="w"> </span><span class="k">AND</span><span class="w"> </span><span class="n">t</span><span class="p">.</span><span class="n">direction</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;OUT&#39;</span>
+<span class="k">GROUP</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">tc</span><span class="p">.</span><span class="n">category_name</span>
+<span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">total</span><span class="w"> </span><span class="k">DESC</span><span class="p">;</span>
+</code></pre></div>
+
+<p>Dùng khi user hỏi "tháng này tôi chi cho những gì".</p>
+<h3>Tổng chi tiêu theo nhóm lớn</h3>
+<div class="codehilite"><pre><span></span><code><span class="k">SELECT</span><span class="w"> </span><span class="n">tc</span><span class="p">.</span><span class="n">category_group</span><span class="p">,</span><span class="w"> </span><span class="k">SUM</span><span class="p">(</span><span class="n">t</span><span class="p">.</span><span class="n">amount</span><span class="p">)</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="n">total</span>
+<span class="k">FROM</span><span class="w"> </span><span class="n">transactions</span><span class="w"> </span><span class="n">t</span>
+<span class="k">JOIN</span><span class="w"> </span><span class="n">transaction_categories</span><span class="w"> </span><span class="n">tc</span><span class="w"> </span><span class="k">ON</span><span class="w"> </span><span class="n">t</span><span class="p">.</span><span class="n">category_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">tc</span><span class="p">.</span><span class="n">category_id</span>
+<span class="k">WHERE</span><span class="w"> </span><span class="n">t</span><span class="p">.</span><span class="n">cif_no</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;CIF000001&#39;</span><span class="w"> </span><span class="k">AND</span><span class="w"> </span><span class="n">t</span><span class="p">.</span><span class="n">direction</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;OUT&#39;</span>
+<span class="k">GROUP</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">tc</span><span class="p">.</span><span class="n">category_group</span><span class="p">;</span>
+</code></pre></div>
+
+<p>Dùng khi cần tổng quan spending vs bills vs fees.</p>
+<h3>Tìm category_id theo code</h3>
+<div class="codehilite"><pre><span></span><code><span class="k">SELECT</span><span class="w"> </span><span class="n">category_id</span><span class="p">,</span><span class="w"> </span><span class="n">category_name</span>
+<span class="k">FROM</span><span class="w"> </span><span class="n">transaction_categories</span>
+<span class="k">WHERE</span><span class="w"> </span><span class="n">category_code</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;FOOD&#39;</span><span class="p">;</span>
+</code></pre></div>
+
+<p>Dùng khi cần filter giao dịch theo một category cụ thể.</p>
+</div>
+</body>
+</html>

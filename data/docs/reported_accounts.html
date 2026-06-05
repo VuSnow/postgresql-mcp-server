@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>reported_accounts</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
+            line-height: 1.6;
+            max-width: 960px;
+            margin: 0 auto;
+            padding: 2rem;
+            color: #1a1a1a;
+            background: #fafafa;
+        }
+        h1 {
+            color: #0d47a1;
+            border-bottom: 3px solid #0d47a1;
+            padding-bottom: 0.5rem;
+        }
+        h2 {
+            color: #1565c0;
+            margin-top: 2rem;
+            border-bottom: 1px solid #e0e0e0;
+            padding-bottom: 0.3rem;
+        }
+        h3 {
+            color: #1976d2;
+            margin-top: 1.5rem;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 1rem 0;
+            font-size: 0.9rem;
+            overflow-x: auto;
+            display: block;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 0.6rem 0.8rem;
+            text-align: left;
+        }
+        th {
+            background-color: #e3f2fd;
+            font-weight: 600;
+            color: #0d47a1;
+        }
+        tr:nth-child(even) {
+            background-color: #f5f5f5;
+        }
+        tr:hover {
+            background-color: #e8f4fd;
+        }
+        code {
+            background: #e8e8e8;
+            padding: 0.15rem 0.4rem;
+            border-radius: 3px;
+            font-size: 0.88em;
+            font-family: 'Fira Code', 'Consolas', monospace;
+        }
+        pre {
+            background: #263238;
+            color: #eeffff;
+            padding: 1rem 1.2rem;
+            border-radius: 6px;
+            overflow-x: auto;
+            font-size: 0.88rem;
+        }
+        pre code {
+            background: none;
+            padding: 0;
+            color: inherit;
+        }
+        strong {
+            color: #b71c1c;
+        }
+        ul, ol {
+            padding-left: 1.5rem;
+        }
+        li {
+            margin-bottom: 0.3rem;
+        }
+        blockquote {
+            border-left: 4px solid #1976d2;
+            margin: 1rem 0;
+            padding: 0.5rem 1rem;
+            background: #e3f2fd;
+        }
+        .container {
+            background: white;
+            padding: 2rem 3rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+<h1>reported_accounts</h1>
+<h2>1. Mục đích bảng</h2>
+<p>Lưu trữ thông tin aggregate risk cho mỗi tài khoản bị báo cáo lừa đảo. Đây là bảng chính phục vụ <strong>transaction screening</strong>: khi user chuyển tiền, Guardian tra cứu tài khoản nhận trong bảng này để đánh giá rủi ro.</p>
+<p><strong>Nhóm:</strong> Fraud detection / transaction screening</p>
+<h2>2. Ngữ cảnh nghiệp vụ</h2>
+<ul>
+<li>Bảng này là <strong>read model aggregate</strong> từ <code>fraud_reports</code>, tổng hợp risk signal cho từng tài khoản.</li>
+<li>Guardian dùng bảng này khi user yêu cầu chuyển tiền:
+    <ul>
+        <li>Lookup receiver_account_no → nếu match → trả risk_level.</li>
+        <li>risk_level HIGH/CRITICAL → cảnh báo hoặc block giao dịch.</li>
+    </ul>
+</li>
+<li>Agent dùng bảng này để:
+    <ul>
+        <li>Transaction screening trước khi execute transfer.</li>
+        <li>Trả lời "tài khoản này có an toàn không?".</li>
+        <li>Quyết định ALLOW / WARN / BLOCK trong <code>fraud_decisions</code>.</li>
+    </ul>
+</li>
+<li>Bảng này <strong>không phải</strong> danh sách tất cả tài khoản ngân hàng. Chỉ chứa tài khoản đã bị báo cáo ít nhất 1 lần.</li>
+<li><code>account_no</code> là tài khoản <strong>bên ngoài</strong> hệ thống (tài khoản kẻ lừa đảo).</li>
+</ul>
+<h2>3. Columns</h2>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Meaning</th>
+<th>Example Values From Data</th>
+<th>Nullable</th>
+<th>Key / Relationship</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>reported_account_id</td>
+<td>UUID string</td>
+<td>ID record</td>
+<td><code>f420f3a9-42b3-5536-9d7b-a7e0a3aec844</code></td>
+<td>No</td>
+<td>PK</td>
+<td>-</td>
+</tr>
+<tr>
+<td>account_no</td>
+<td>string</td>
+<td>Số TK bị báo cáo</td>
+<td><code>43275604177</code>, <code>5347355289</code>, <code>0094318143</code></td>
+<td>No</td>
+<td>Unique</td>
+<td>Từ fraud_reports.reported_account_no</td>
+</tr>
+<tr>
+<td>bank_code</td>
+<td>string</td>
+<td>Bank code</td>
+<td><code>ACB</code>, <code>VIB</code>, <code>VPB</code>, <code>CTG</code>, <code>VCB</code></td>
+<td>No</td>
+<td>-</td>
+<td>Từ BANK_MAP</td>
+</tr>
+<tr>
+<td>linked_customer_cif</td>
+<td>string</td>
+<td>CIF chủ TK (nếu biết)</td>
+<td>-</td>
+<td>Yes</td>
+<td>-</td>
+<td>Link tới reported_customers</td>
+</tr>
+<tr>
+<td>valid_report_count</td>
+<td>integer</td>
+<td>Số report hợp lệ</td>
+<td><code>1</code></td>
+<td>No</td>
+<td>-</td>
+<td>SUBMITTED + VALIDATED + CONFIRMED</td>
+</tr>
+<tr>
+<td>unique_reporter_count</td>
+<td>integer</td>
+<td>Số người báo cáo khác nhau</td>
+<td><code>1</code></td>
+<td>No</td>
+<td>-</td>
+<td>Distinct reporter_cif_no</td>
+</tr>
+<tr>
+<td>total_reported_amount</td>
+<td>numeric</td>
+<td>Tổng tiền bị báo cáo mất</td>
+<td><code>22238685</code>, <code>3198935</code>, <code>32520461</code></td>
+<td>No</td>
+<td>-</td>
+<td>VND</td>
+</tr>
+<tr>
+<td>avg_confidence_score</td>
+<td>numeric</td>
+<td>TB confidence score</td>
+<td><code>80</code>, <code>70</code>, <code>50</code>, <code>100</code>, <code>65</code></td>
+<td>No</td>
+<td>-</td>
+<td>Trung bình từ fraud_reports</td>
+</tr>
+<tr>
+<td>risk_score</td>
+<td>numeric</td>
+<td>Điểm risk (0.0-1.0)</td>
+<td><code>0.95</code>, <code>0.25</code></td>
+<td>No</td>
+<td>-</td>
+<td>Tính từ metrics</td>
+</tr>
+<tr>
+<td>risk_level</td>
+<td>enum string</td>
+<td>Mức risk</td>
+<td><code>CRITICAL</code>, <code>LOW</code></td>
+<td>No</td>
+<td>-</td>
+<td>Quyết định screening</td>
+</tr>
+<tr>
+<td>status</td>
+<td>enum string</td>
+<td>Trạng thái tài khoản</td>
+<td><code>ACTIVE</code></td>
+<td>No</td>
+<td>-</td>
+<td>Trạng thái monitoring</td>
+</tr>
+<tr>
+<td>first_reported_at</td>
+<td>timestamp string</td>
+<td>Lần báo cáo đầu tiên</td>
+<td><code>2026-05-22 00:02:36</code></td>
+<td>No</td>
+<td>-</td>
+<td>-</td>
+</tr>
+<tr>
+<td>last_reported_at</td>
+<td>timestamp string</td>
+<td>Lần báo cáo gần nhất</td>
+<td><code>2026-05-22 00:02:36</code></td>
+<td>No</td>
+<td>-</td>
+<td>>= first_reported_at</td>
+</tr>
+</tbody>
+</table>
+<h2>4. Important Values / Enums</h2>
+<h3>risk_level</h3>
+<table>
+<thead>
+<tr><th>Value</th><th>Meaning</th><th>Screening Action</th></tr>
+</thead>
+<tbody>
+<tr><td>LOW</td><td>Risk thấp (&lt; 0.3)</td><td>ALLOW — cho phép chuyển</td></tr>
+<tr><td>MEDIUM</td><td>Risk trung bình (0.3-0.6)</td><td>WARN — cảnh báo user</td></tr>
+<tr><td>HIGH</td><td>Risk cao (0.6-0.8)</td><td>WARN/BLOCK — cảnh báo mạnh hoặc chặn</td></tr>
+<tr><td>CRITICAL</td><td>Risk rất cao (&gt;= 0.8)</td><td>BLOCK — chặn giao dịch</td></tr>
+</tbody>
+</table>
+<h3>status</h3>
+<table>
+<thead>
+<tr><th>Value</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td>ACTIVE</td><td>Đang monitoring</td></tr>
+<tr><td>MONITORING</td><td>Theo dõi (risk thấp)</td></tr>
+<tr><td>FLAGGED</td><td>Đã đánh dấu nghi vấn</td></tr>
+<tr><td>BLOCKED</td><td>Bị chặn toàn bộ giao dịch đến</td></tr>
+</tbody>
+</table>
+<h2>5. Relationships</h2>
+<ul>
+<li><code>reported_accounts.account_no</code> ← aggregate từ <code>fraud_reports.reported_account_no</code></li>
+<li><code>reported_accounts.linked_customer_cif</code> → <code>reported_customers.cif_no</code></li>
+<li><code>reported_accounts.account_no</code> được tra cứu bởi <code>fraud_decisions.receiver_account_no</code></li>
+</ul>
+<h2>6. Simple Usage Examples</h2>
+<h3>Transaction screening — check tài khoản nhận</h3>
+<pre><code>SELECT account_no, bank_code, risk_level, risk_score, valid_report_count, status
+FROM reported_accounts
+WHERE account_no = '43275604177' AND bank_code = 'ACB';</code></pre>
+<p>Dùng khi Guardian check receiver account trước khi chuyển tiền.</p>
+<h3>Danh sách tài khoản CRITICAL</h3>
+<pre><code>SELECT account_no, bank_code, risk_score, total_reported_amount, valid_report_count
+FROM reported_accounts
+WHERE risk_level = 'CRITICAL'
+ORDER BY risk_score DESC;</code></pre>
+<h3>Tìm tài khoản có nhiều reporter nhất</h3>
+<pre><code>SELECT account_no, bank_code, unique_reporter_count, total_reported_amount
+FROM reported_accounts
+ORDER BY unique_reporter_count DESC
+LIMIT 5;</code></pre>
+<h3>Check tài khoản có an toàn không</h3>
+<pre><code>SELECT account_no, bank_code, risk_level, risk_score,
+       valid_report_count, unique_reporter_count, total_reported_amount
+FROM reported_accounts
+WHERE account_no = '8812520566';</code></pre>
+</div>
+</body>
+</html>

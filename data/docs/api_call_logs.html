@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>api_call_logs</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
+            line-height: 1.6;
+            max-width: 960px;
+            margin: 0 auto;
+            padding: 2rem;
+            color: #1a1a1a;
+            background: #fafafa;
+        }
+        h1 {
+            color: #0d47a1;
+            border-bottom: 3px solid #0d47a1;
+            padding-bottom: 0.5rem;
+        }
+        h2 {
+            color: #1565c0;
+            margin-top: 2rem;
+            border-bottom: 1px solid #e0e0e0;
+            padding-bottom: 0.3rem;
+        }
+        h3 {
+            color: #1976d2;
+            margin-top: 1.5rem;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 1rem 0;
+            font-size: 0.9rem;
+            overflow-x: auto;
+            display: block;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 0.6rem 0.8rem;
+            text-align: left;
+        }
+        th {
+            background-color: #e3f2fd;
+            font-weight: 600;
+            color: #0d47a1;
+        }
+        tr:nth-child(even) {
+            background-color: #f5f5f5;
+        }
+        tr:hover {
+            background-color: #e8f4fd;
+        }
+        code {
+            background: #e8e8e8;
+            padding: 0.15rem 0.4rem;
+            border-radius: 3px;
+            font-size: 0.88em;
+            font-family: 'Fira Code', 'Consolas', monospace;
+        }
+        pre {
+            background: #263238;
+            color: #eeffff;
+            padding: 1rem 1.2rem;
+            border-radius: 6px;
+            overflow-x: auto;
+            font-size: 0.88rem;
+        }
+        pre code {
+            background: none;
+            padding: 0;
+            color: inherit;
+        }
+        strong {
+            color: #b71c1c;
+        }
+        ul, ol {
+            padding-left: 1.5rem;
+        }
+        li {
+            margin-bottom: 0.3rem;
+        }
+        blockquote {
+            border-left: 4px solid #1976d2;
+            margin: 1rem 0;
+            padding: 0.5rem 1rem;
+            background: #e3f2fd;
+        }
+        .container {
+            background: white;
+            padding: 2rem 3rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+<h1>api_call_logs</h1>
+<h2>1. Mục đích bảng</h2>
+<p>Ghi nhận log mỗi lần agent gọi external banking API mock. Mỗi record tương ứng một HTTP call tới API bên ngoài, lưu request payload, response payload, HTTP status.</p>
+<p><strong>Nhóm:</strong> API call log</p>
+<h2>2. Ngữ cảnh nghiệp vụ</h2>
+<ul>
+<li>Bảng này tồn tại để <strong>audit trail</strong> — ghi lại chính xác agent đã gọi API gì, với payload gì, kết quả ra sao.</li>
+<li>Agent <strong>không query</strong> bảng này trong flow bình thường. Bảng này phục vụ:</li>
+<li>Debug khi giao dịch fail.</li>
+<li>Audit/compliance — trace lại mọi API call.</li>
+<li>Replay/retry logic.</li>
+<li>Mỗi <code>api_call_log</code> liên kết với một <code>action_request</code> qua <code>action_id</code>.</li>
+<li>Bảng này <strong>không phải</strong> nơi lưu transaction result. Kết quả giao dịch lưu ở <code>transactions</code>.</li>
+<li><code>response_payload</code> chứa <code>external_reference</code> — mã tham chiếu từ hệ thống external.</li>
+</ul>
+<h2>3. Columns</h2>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Meaning</th>
+<th>Example Values From Data</th>
+<th>Nullable</th>
+<th>Key / Relationship</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>api_call_id</td>
+<td>UUID string</td>
+<td>ID kỹ thuật log entry</td>
+<td><code>1fc9f267-0993-5fc0-a950-891c60d88548</code></td>
+<td>No</td>
+<td>PK</td>
+<td>-</td>
+</tr>
+<tr>
+<td>action_id</td>
+<td>UUID string</td>
+<td>Action request liên quan</td>
+<td><code>10a66751-e588-52b3-8c89-c500d10fd465</code></td>
+<td>No</td>
+<td>FK → action_requests.action_id</td>
+<td>Mỗi action có thể có nhiều API call (retry)</td>
+</tr>
+<tr>
+<td>api_name</td>
+<td>string</td>
+<td>Tên API được gọi</td>
+<td><code>external_transfer_api</code>, <code>external_bill_payment_api</code>, <code>external_phone_topup_api</code>, <code>external_card_service_api</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>Trùng với action_requests.api_name</td>
+</tr>
+<tr>
+<td>request_payload</td>
+<td>JSON string</td>
+<td>Payload gửi đi</td>
+<td><code>{"from_account_no": "92644220969", "to_account_no": "872975859883", ...}</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>Exactly payload đã gửi</td>
+</tr>
+<tr>
+<td>response_payload</td>
+<td>JSON string</td>
+<td>Response nhận về</td>
+<td><code>{"external_reference": "EXTTRA000001", "status": "SUCCESS", "message": "Operation completed successfully"}</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>Chứa external_reference nếu thành công</td>
+</tr>
+<tr>
+<td>http_status</td>
+<td>numeric</td>
+<td>HTTP status code</td>
+<td><code>200</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>200 = success, 4xx/5xx = error</td>
+</tr>
+<tr>
+<td>status</td>
+<td>enum string</td>
+<td>Kết quả call</td>
+<td><code>SUCCESS</code>, <code>FAILED</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>Đơn giản hóa từ http_status</td>
+</tr>
+<tr>
+<td>created_at</td>
+<td>timestamp string</td>
+<td>Thời điểm gọi API</td>
+<td><code>2026-05-22 08:25:15</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<h2>4. Important Values / Enums</h2>
+<h3>api_name</h3>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Meaning</th>
+<th>Dùng cho action_type</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>external_transfer_api</td>
+<td>API chuyển khoản</td>
+<td>TRANSFER</td>
+</tr>
+<tr>
+<td>external_bill_payment_api</td>
+<td>API thanh toán hóa đơn</td>
+<td>BILL_PAYMENT</td>
+</tr>
+<tr>
+<td>external_phone_topup_api</td>
+<td>API nạp điện thoại</td>
+<td>PHONE_TOPUP</td>
+</tr>
+<tr>
+<td>external_card_service_api</td>
+<td>API dịch vụ thẻ</td>
+<td>CARD_LOCK, CARD_UNLOCK, CARD_LIMIT_CHANGE</td>
+</tr>
+</tbody>
+</table>
+<h3>status</h3>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SUCCESS</td>
+<td>API trả về thành công (HTTP 200)</td>
+</tr>
+<tr>
+<td>FAILED</td>
+<td>API trả về lỗi (HTTP 4xx/5xx)</td>
+</tr>
+</tbody>
+</table>
+<h3>response_payload structure (SUCCESS)</h3>
+<div class="codehilite"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;external_reference&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;EXTTRA000001&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;SUCCESS&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;message&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Operation completed successfully&quot;</span>
+<span class="p">}</span>
+</code></pre></div>
+
+<h2>5. Relationships</h2>
+<ul>
+<li><code>api_call_logs.action_id</code> → <code>action_requests.action_id</code></li>
+</ul>
+<h2>6. Simple Usage Examples</h2>
+<h3>Xem API call log của một action</h3>
+<div class="codehilite"><pre><span></span><code><span class="k">SELECT</span><span class="w"> </span><span class="n">api_name</span><span class="p">,</span><span class="w"> </span><span class="n">http_status</span><span class="p">,</span><span class="w"> </span><span class="n">status</span><span class="p">,</span><span class="w"> </span><span class="n">request_payload</span><span class="p">,</span><span class="w"> </span><span class="n">response_payload</span><span class="p">,</span><span class="w"> </span><span class="n">created_at</span>
+<span class="k">FROM</span><span class="w"> </span><span class="n">api_call_logs</span>
+<span class="k">WHERE</span><span class="w"> </span><span class="n">action_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;10a66751-e588-52b3-8c89-c500d10fd465&#39;</span>
+<span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">created_at</span><span class="p">;</span>
+</code></pre></div>
+
+<p>Dùng khi cần trace API call đã thực hiện cho một action.</p>
+<h3>Tìm API call thất bại</h3>
+<div class="codehilite"><pre><span></span><code><span class="k">SELECT</span><span class="w"> </span><span class="n">acl</span><span class="p">.</span><span class="n">api_call_id</span><span class="p">,</span><span class="w"> </span><span class="n">acl</span><span class="p">.</span><span class="n">api_name</span><span class="p">,</span><span class="w"> </span><span class="n">acl</span><span class="p">.</span><span class="n">http_status</span><span class="p">,</span><span class="w"> </span><span class="n">acl</span><span class="p">.</span><span class="n">response_payload</span><span class="p">,</span><span class="w"> </span><span class="n">ar</span><span class="p">.</span><span class="n">user_text</span>
+<span class="k">FROM</span><span class="w"> </span><span class="n">api_call_logs</span><span class="w"> </span><span class="n">acl</span>
+<span class="k">JOIN</span><span class="w"> </span><span class="n">action_requests</span><span class="w"> </span><span class="n">ar</span><span class="w"> </span><span class="k">ON</span><span class="w"> </span><span class="n">acl</span><span class="p">.</span><span class="n">action_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">ar</span><span class="p">.</span><span class="n">action_id</span>
+<span class="k">WHERE</span><span class="w"> </span><span class="n">acl</span><span class="p">.</span><span class="n">status</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;FAILED&#39;</span>
+<span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">acl</span><span class="p">.</span><span class="n">created_at</span><span class="w"> </span><span class="k">DESC</span>
+<span class="k">LIMIT</span><span class="w"> </span><span class="mi">10</span><span class="p">;</span>
+</code></pre></div>
+
+<p>Dùng cho debug/monitoring — tìm các call bị lỗi.</p>
+<h3>Thống kê success rate theo API</h3>
+<div class="codehilite"><pre><span></span><code><span class="k">SELECT</span><span class="w"> </span><span class="n">api_name</span><span class="p">,</span><span class="w"> </span><span class="n">status</span><span class="p">,</span><span class="w"> </span><span class="k">COUNT</span><span class="p">(</span><span class="o">*</span><span class="p">)</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="k">count</span>
+<span class="k">FROM</span><span class="w"> </span><span class="n">api_call_logs</span>
+<span class="k">GROUP</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">api_name</span><span class="p">,</span><span class="w"> </span><span class="n">status</span><span class="p">;</span>
+</code></pre></div>
+
+<p>Dùng cho monitoring chất lượng external API.</p>
+</div>
+</body>
+</html>

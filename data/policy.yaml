@@ -1,0 +1,82 @@
+# ============================================================
+# Text2SQL Agent — Query Policy Configuration
+# ============================================================
+# This file defines security and business rules enforced during
+# SQL generation, validation, and semantic checking.
+# ============================================================
+
+# Columns that must NEVER appear in SELECT output
+forbidden_columns:
+  customers:
+    - password_hash
+    - pin_code
+    - biometric_hash
+  cards:
+    - card_number_full
+    - cvv
+    - pin_encrypted
+  api_call_logs:
+    - request_payload
+    - response_payload
+  action_requests:
+    - api_payload
+
+# Tables that require a customer/account scope filter
+# (cif_no, account_no, or card_id must be in WHERE)
+sensitive_tables:
+  - transactions
+  - cards
+  - beneficiaries
+  - audit_logs
+  - action_requests
+  - fraud_reports
+
+# Required time filters — queries on these tables must include
+# a time-based WHERE clause to prevent full-table scans
+required_time_filters:
+  transactions:
+    column: transaction_time
+    max_range_days: 90
+  audit_logs:
+    column: created_at
+    max_range_days: 30
+  api_call_logs:
+    column: created_at
+    max_range_days: 30
+  action_requests:
+    column: created_at
+    max_range_days: 90
+
+# Maximum LIMIT allowed in generated queries
+max_limit: 1000
+default_limit: 100
+
+# Blocked SQL patterns (case-insensitive substring match)
+blocked_patterns:
+  - "SELECT *"
+  - "UNION ALL"
+  - "INTO OUTFILE"
+  - "pg_sleep"
+  - "information_schema"
+  - "pg_catalog"
+
+# Aggregation safety — tables where SUM/COUNT requires
+# careful join handling to avoid double-counting
+aggregation_caution_tables:
+  - transactions
+  - audit_logs
+  - api_call_logs
+
+# JSONB columns — allowed in WHERE but not in SELECT without extraction
+jsonb_columns:
+  action_requests:
+    - api_payload
+    - resolved_entities
+    - missing_fields
+  api_call_logs:
+    - request_payload
+    - response_payload
+  audit_logs:
+    - event_payload
+  fraud_decisions:
+    - reason_codes

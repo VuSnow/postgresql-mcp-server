@@ -1,0 +1,316 @@
+Dưới đây là bản prompt đã sửa: **chỉ yêu cầu tạo các file `.md`**, **không tạo `script.py`**, và vẫn giữ nguyên phần **DOCUMENT STRUCTURE FOR EACH TABLE** như prompt gốc. Tôi cũng chỉnh wording để model hiểu rõ output mong muốn là **nội dung markdown documentation**, không phải code generate file. Tham khảo prompt gốc và ví dụ format table reference bạn gửi.  
+
+````md
+Bạn là senior data engineer chuyên viết schema documentation cho vector database / RAG system.
+
+Nhiệm vụ:
+Dựa trên schema banking transaction agent và dữ liệu mock CSV đã có, hãy tạo nội dung cho 16 file markdown `.md`, mỗi file mô tả một table trong banking transaction agent schema.
+
+KHÔNG generate lại mock data.
+KHÔNG sửa CSV.
+KHÔNG tạo Python script.
+KHÔNG tạo seed script.
+KHÔNG viết code để generate file.
+CHỈ viết nội dung markdown cho từng file `.md`.
+
+Các CSV đầu vào đã có trong:
+
+./mock_data/
+- customers.csv
+- accounts.csv
+- cards.csv
+- beneficiaries.csv
+- merchants.csv
+- billers.csv
+- customer_biller_accounts.csv
+- transaction_categories.csv
+- transactions.csv
+- action_requests.csv
+- api_call_logs.csv
+- audit_logs.csv
+- fraud_reports.csv
+- reported_accounts.csv
+- reported_customers.csv
+- fraud_decisions.csv
+
+Output mong muốn:
+
+Tạo nội dung cho 16 markdown files sau:
+
+./mock_data/table_descriptions/customers.md
+./mock_data/table_descriptions/accounts.md
+./mock_data/table_descriptions/cards.md
+./mock_data/table_descriptions/beneficiaries.md
+./mock_data/table_descriptions/merchants.md
+./mock_data/table_descriptions/billers.md
+./mock_data/table_descriptions/customer_biller_accounts.md
+./mock_data/table_descriptions/transaction_categories.md
+./mock_data/table_descriptions/transactions.md
+./mock_data/table_descriptions/action_requests.md
+./mock_data/table_descriptions/api_call_logs.md
+./mock_data/table_descriptions/audit_logs.md
+./mock_data/table_descriptions/fraud_reports.md
+./mock_data/table_descriptions/reported_accounts.md
+./mock_data/table_descriptions/reported_customers.md
+./mock_data/table_descriptions/fraud_decisions.md
+
+Với mỗi file, hãy output theo format:
+
+==================================================
+FILE: ./mock_data/table_descriptions/<table_name>.md
+==================================================
+
+<nội dung markdown của file>
+
+Yêu cầu:
+- Mỗi table là một file markdown riêng.
+- Nội dung markdown viết bằng tiếng Việt.
+- Mỗi file phải đủ rõ để đưa vào vector DB/RAG.
+- Mỗi file phải độc lập, tức là đọc riêng vẫn hiểu table đó dùng để làm gì.
+- Ưu tiên mô tả nghiệp vụ, ý nghĩa cột, enum values, relationships, và cách agent dùng bảng.
+- Không viết lan man.
+- Không bịa dữ liệu sample nếu đã có sample trong CSV.
+- Nếu có dữ liệu mẫu, dùng value thật từ CSV.
+- Nếu không thấy dữ liệu mẫu, ghi example value hợp lý theo schema nhưng đánh dấu là “example format”, không nói là lấy từ data.
+- Nếu JSON field xuất hiện, mô tả ý nghĩa JSON và ví dụ cấu trúc ngắn gọn.
+- Không cần production-grade SQL.
+- Query examples chỉ cần đơn giản, dễ hiểu, hữu ích cho Text2SQL/agent.
+
+==================================================
+CONTEXT
+==================================================
+
+Đây là database mock cho banking transaction agent trong hackathon.
+
+Hệ thống hoạt động theo verified workflow:
+
+User request
+→ Agent hiểu intent
+→ Agent resolve thông tin từ read-model database
+→ Guardian kiểm tra risk / permission / confirmation
+→ User xác nhận
+→ Executor gọi external banking API mock
+→ Lưu audit trace
+
+Database KHÔNG phải core banking ledger thật.
+
+Database dùng để:
+1. Lưu read model / lịch sử giao dịch cho Text2SQL agent.
+2. Lưu thông tin để agent tạo API payload: accounts, beneficiaries, billers, cards.
+3. Lưu action draft, api payload, api call log, audit log.
+4. Lưu fraud report và risk signal cho transaction screening.
+5. Demo các workflow:
+   - chuyển tiền
+   - nạp điện thoại
+   - thanh toán hóa đơn
+   - giao dịch thẻ
+   - khóa/mở thẻ
+   - risk check
+   - báo cáo lừa đảo (fraud report)
+   - transaction screening (kiểm tra tài khoản nhận trước khi chuyển)
+   - audit trace
+
+Quan trọng:
+- `transactions` là read model / transaction history.
+- Agent không execute giao dịch bằng cách insert/update trực tiếp vào `transactions`.
+- Hành động nhạy cảm đi qua `action_requests`.
+- `api_call_logs` chỉ ghi nhận việc gọi external banking API mock.
+- `audit_logs` ghi lại trace để giải thích workflow.
+- `fraud_reports` lưu báo cáo lừa đảo từ user. Agent dùng để tiếp nhận và xử lý report.
+- `reported_accounts` là aggregate risk signal cho từng tài khoản bị báo cáo. Dùng cho transaction screening.
+- `reported_customers` là aggregate risk signal cho CIF bị báo cáo nhiều lần.
+- `fraud_decisions` lưu kết quả screening trước khi chuyển tiền: ALLOW / WARN / BLOCK.
+
+==================================================
+TABLE GROUPS
+==================================================
+
+Phân loại các bảng như sau:
+
+1. Master/reference data
+- customers
+- accounts
+- cards
+- beneficiaries
+- merchants
+- billers
+- customer_biller_accounts
+- transaction_categories
+
+2. Read model / transaction history
+- transactions
+
+3. Workflow/action store
+- action_requests
+
+4. API call log
+- api_call_logs
+
+5. Audit log
+- audit_logs
+
+6. Fraud detection / transaction screening
+- fraud_reports
+- reported_accounts
+- reported_customers
+- fraud_decisions
+
+==================================================
+DOCUMENT STRUCTURE FOR EACH TABLE
+==================================================
+
+Mỗi file `.md` phải có cấu trúc sau:
+
+# <table_name>
+
+## 1. Mục đích bảng
+
+Mô tả ngắn gọn bảng này dùng để làm gì.
+
+Phải ghi rõ table thuộc nhóm nào:
+
+- Master/reference data
+- Read model / transaction history
+- Workflow/action store
+- API call log
+- Audit log
+
+## 2. Ngữ cảnh nghiệp vụ
+
+Giải thích:
+- Vì sao bảng này tồn tại?
+- Agent dùng bảng này để lấy thông tin gì?
+- Bảng này phục vụ use case nào?
+- Bảng này không nên bị hiểu nhầm là gì?
+
+Ví dụ với `transactions`:
+- Đây là lịch sử giao dịch/read model.
+- Dùng cho Text2SQL, phân tích chi tiêu, tìm người nhận cũ.
+- Không phải core ledger.
+- Không phải nơi agent thực thi giao dịch.
+
+## 3. Columns
+
+Tạo bảng markdown:
+
+| Column | Type | Meaning | Example Values From Data | Nullable | Key / Relationship | Notes |
+|---|---|---|---|---|---|---|
+
+Yêu cầu:
+- Column: tên cột chính xác trong CSV/schema.
+- Type: suy luận kiểu đơn giản:
+  - UUID string
+  - string
+  - enum string
+  - numeric
+  - timestamp string
+  - boolean
+  - JSON string
+- Meaning: ý nghĩa nghiệp vụ của cột.
+- Example Values From Data: lấy 2-5 value thật từ CSV nếu có.
+- Nullable: Yes nếu có blank/null trong CSV/schema, No nếu không.
+- Key / Relationship:
+  - PK
+  - FK → table.column
+  - Unique
+  - hoặc "-"
+- Notes:
+  - Khi nào field có giá trị.
+  - Mapping rule.
+  - Use case liên quan.
+  - Nullable logic nếu quan trọng.
+
+## 4. Important Values / Enums
+
+Nếu column có enum-like values, thống kê và giải thích.
+
+Ví dụ:
+
+| Column | Value | Meaning | Example Use Case |
+|---|---|---|---|
+
+Ví dụ với `transactions.transaction_type`:
+- BANK_TRANSFER: chuyển khoản ngân hàng.
+- CARD_PAYMENT: giao dịch thẻ.
+- PHONE_TOPUP: nạp điện thoại.
+- BILL_PAYMENT: thanh toán hóa đơn.
+- SALARY: nhận lương.
+- FEE: phí ngân hàng.
+
+Nếu bảng không có enum quan trọng, ghi:
+
+Không có enum quan trọng.
+
+## 5. Relationships
+
+Liệt kê relationship chính.
+
+Ví dụ:
+
+- transactions.cif_no → customers.cif_no
+- transactions.account_no → accounts.account_no
+- transactions.card_id → cards.card_id
+- transactions.merchant_id → merchants.merchant_id
+- transactions.biller_id → billers.biller_id
+- transactions.beneficiary_id → beneficiaries.beneficiary_id
+- transactions.category_id → transaction_categories.category_id
+
+Nếu bảng được bảng khác tham chiếu, cũng ghi:
+
+- accounts.account_no được transactions.account_no tham chiếu.
+
+## 6. Simple Usage Examples
+
+Mỗi file có 2-4 ví dụ sử dụng bảng.
+
+Mỗi ví dụ gồm:
+- Tên ví dụ.
+- Mô tả ngắn.
+- SQL hoặc pseudo-SQL đơn giản.
+- Giải thích ngắn.
+
+Yêu cầu:
+- Query đơn giản.
+- Với bảng có `cif_no`, luôn có ít nhất 1 query filter:
+
+```sql
+WHERE cif_no = 'CIF000001'
+````
+
+* Không cần production-grade SQL.
+* Không cần query quá phức tạp.
+* Ưu tiên query hữu ích cho Text2SQL/agent.
+
+Ví dụ:
+
+```sql
+SELECT *
+FROM transactions
+WHERE cif_no = 'CIF000001'
+ORDER BY transaction_time DESC
+LIMIT 3;
+```
+
+==================================================
+STYLE REQUIREMENTS
+==================
+
+Viết giống tài liệu schema reference cho RAG/Text2SQL:
+
+* Rõ ràng.
+* Ngắn gọn.
+* Có ngữ cảnh nghiệp vụ.
+* Không chỉ mô tả kỹ thuật column.
+* Tránh mô tả chung chung kiểu “stores information”.
+* Phải nói rõ agent dùng bảng đó để làm gì.
+* Phải nói rõ table không nên bị hiểu nhầm là gì nếu có rủi ro hiểu sai.
+* SQL examples phải sát use case banking agent.
+
+Tham khảo style:
+
+* Table có phần description/mục đích rõ ràng.
+* Columns được mô tả bằng bảng markdown.
+* Có key domain notes hoặc business notes nếu cần.
+* Có query patterns/use cases đơn giản.
+* Dùng wording phù hợp để đưa vào vector DB.
+

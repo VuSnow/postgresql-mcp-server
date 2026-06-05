@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>transactions</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
+            line-height: 1.6;
+            max-width: 960px;
+            margin: 0 auto;
+            padding: 2rem;
+            color: #1a1a1a;
+            background: #fafafa;
+        }
+        h1 {
+            color: #0d47a1;
+            border-bottom: 3px solid #0d47a1;
+            padding-bottom: 0.5rem;
+        }
+        h2 {
+            color: #1565c0;
+            margin-top: 2rem;
+            border-bottom: 1px solid #e0e0e0;
+            padding-bottom: 0.3rem;
+        }
+        h3 {
+            color: #1976d2;
+            margin-top: 1.5rem;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 1rem 0;
+            font-size: 0.9rem;
+            overflow-x: auto;
+            display: block;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 0.6rem 0.8rem;
+            text-align: left;
+        }
+        th {
+            background-color: #e3f2fd;
+            font-weight: 600;
+            color: #0d47a1;
+        }
+        tr:nth-child(even) {
+            background-color: #f5f5f5;
+        }
+        tr:hover {
+            background-color: #e8f4fd;
+        }
+        code {
+            background: #e8e8e8;
+            padding: 0.15rem 0.4rem;
+            border-radius: 3px;
+            font-size: 0.88em;
+            font-family: 'Fira Code', 'Consolas', monospace;
+        }
+        pre {
+            background: #263238;
+            color: #eeffff;
+            padding: 1rem 1.2rem;
+            border-radius: 6px;
+            overflow-x: auto;
+            font-size: 0.88rem;
+        }
+        pre code {
+            background: none;
+            padding: 0;
+            color: inherit;
+        }
+        strong {
+            color: #b71c1c;
+        }
+        ul, ol {
+            padding-left: 1.5rem;
+        }
+        li {
+            margin-bottom: 0.3rem;
+        }
+        blockquote {
+            border-left: 4px solid #1976d2;
+            margin: 1rem 0;
+            padding: 0.5rem 1rem;
+            background: #e3f2fd;
+        }
+        .container {
+            background: white;
+            padding: 2rem 3rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+<h1>transactions</h1>
+<h2>1. Mục đích bảng</h2>
+<p>Lưu lịch sử giao dịch (read model) của khách hàng. Đây là bảng chính cho Text2SQL — agent query bảng này khi user hỏi về lịch sử chi tiêu, giao dịch gần đây, tìm kiếm giao dịch.</p>
+<p><strong>Nhóm:</strong> Read model / transaction history</p>
+<h2>2. Ngữ cảnh nghiệp vụ</h2>
+<ul>
+<li>Đây là <strong>lịch sử giao dịch / read model</strong>. Dùng cho Text2SQL, phân tích chi tiêu, tìm người nhận cũ.</li>
+<li><strong>KHÔNG phải</strong> core banking ledger. Không phải nơi agent thực thi giao dịch.</li>
+<li>Agent <strong>không insert/update</strong> trực tiếp vào bảng này. Giao dịch mới đi qua <code>action_requests</code> → <code>api_call_logs</code>.</li>
+<li>Agent dùng bảng này để:</li>
+<li>Trả lời câu hỏi "giao dịch gần đây của tôi".</li>
+<li>Phân tích chi tiêu theo thời gian, danh mục, merchant.</li>
+<li>Tìm người nhận cũ (counterparty) khi resolve recipient.</li>
+<li>Kiểm tra trạng thái giao dịch (SUCCESS/FAILED/PENDING).</li>
+<li>Phục vụ use case: tra cứu lịch sử, phân tích tài chính, Text2SQL queries.</li>
+</ul>
+<h2>3. Columns</h2>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Meaning</th>
+<th>Example Values From Data</th>
+<th>Nullable</th>
+<th>Key / Relationship</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>transaction_id</td>
+<td>UUID string</td>
+<td>ID kỹ thuật giao dịch</td>
+<td><code>8bb38dee-3d86-5f6b-8de4-839d68454a4f</code></td>
+<td>No</td>
+<td>PK</td>
+<td>-</td>
+</tr>
+<tr>
+<td>transaction_ref</td>
+<td>string</td>
+<td>Mã tham chiếu giao dịch</td>
+<td><code>TXN202512000001</code>, <code>TXN202512000002</code></td>
+<td>No</td>
+<td>Unique</td>
+<td>Format: TXN + YYYYMM + sequence</td>
+</tr>
+<tr>
+<td>cif_no</td>
+<td>string</td>
+<td>Mã khách hàng</td>
+<td><code>CIF000097</code>, <code>CIF000094</code>, <code>CIF000075</code></td>
+<td>No</td>
+<td>FK → customers.cif_no</td>
+<td><strong>Luôn filter theo cif_no</strong></td>
+</tr>
+<tr>
+<td>account_no</td>
+<td>string</td>
+<td>Số tài khoản thực hiện</td>
+<td><code>110809969308</code>, <code>491476607283</code></td>
+<td>No</td>
+<td>FK → accounts.account_no</td>
+<td>Tài khoản bị trừ/cộng tiền</td>
+</tr>
+<tr>
+<td>card_id</td>
+<td>UUID string</td>
+<td>ID thẻ (nếu giao dịch thẻ)</td>
+<td><code>d4995ef4-9f95-5484-99c7-ea26c1abd32f</code></td>
+<td>Yes</td>
+<td>FK → cards.card_id</td>
+<td>Chỉ có giá trị khi transaction_type = CARD_PAYMENT</td>
+</tr>
+<tr>
+<td>transaction_time</td>
+<td>timestamp string</td>
+<td>Thời điểm giao dịch</td>
+<td><code>2025-12-01 01:03:20</code></td>
+<td>No</td>
+<td>-</td>
+<td>Dùng filter theo thời gian, ORDER BY</td>
+</tr>
+<tr>
+<td>amount</td>
+<td>numeric</td>
+<td>Số tiền</td>
+<td><code>42031562</code>, <code>46380807</code>, <code>3220626</code></td>
+<td>No</td>
+<td>-</td>
+<td>Đơn vị: đồng VND</td>
+</tr>
+<tr>
+<td>currency</td>
+<td>string</td>
+<td>Đơn vị tiền tệ</td>
+<td><code>VND</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>Mặc định VND</td>
+</tr>
+<tr>
+<td>direction</td>
+<td>enum string</td>
+<td>Chiều giao dịch</td>
+<td><code>IN</code>, <code>OUT</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>IN = nhận tiền, OUT = chi tiền</td>
+</tr>
+<tr>
+<td>transaction_type</td>
+<td>enum string</td>
+<td>Loại giao dịch</td>
+<td><code>SALARY</code>, <code>BANK_TRANSFER</code>, <code>CARD_PAYMENT</code>, <code>BILL_PAYMENT</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>Phân loại giao dịch chính</td>
+</tr>
+<tr>
+<td>category_id</td>
+<td>UUID string</td>
+<td>Danh mục chi tiêu</td>
+<td><code>9559bdbc-3175-5bc5-ad12-4d12da9c3f99</code></td>
+<td>Yes</td>
+<td>FK → transaction_categories.category_id</td>
+<td>Join để lấy tên category</td>
+</tr>
+<tr>
+<td>merchant_id</td>
+<td>UUID string</td>
+<td>Merchant (nếu thanh toán thẻ)</td>
+<td><code>1295ef10-bd6c-54b5-b74a-c732a7f4b67a</code></td>
+<td>Yes</td>
+<td>FK → merchants.merchant_id</td>
+<td>Chỉ có khi CARD_PAYMENT</td>
+</tr>
+<tr>
+<td>biller_id</td>
+<td>UUID string</td>
+<td>Biller (nếu thanh toán hóa đơn)</td>
+<td>-</td>
+<td>Yes</td>
+<td>FK → billers.biller_id</td>
+<td>Chỉ có khi BILL_PAYMENT</td>
+</tr>
+<tr>
+<td>beneficiary_id</td>
+<td>UUID string</td>
+<td>Người nhận (nếu chuyển khoản)</td>
+<td><code>cd19c6ab-41f3-5eb1-ba42-039dcd8aca25</code></td>
+<td>Yes</td>
+<td>FK → beneficiaries.beneficiary_id</td>
+<td>Chỉ có khi BANK_TRANSFER</td>
+</tr>
+<tr>
+<td>counterparty_account_no</td>
+<td>string</td>
+<td>Số TK đối tác</td>
+<td><code>6792988425995</code>, <code>215226557676</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>Số tài khoản bên kia (nhận/gửi)</td>
+</tr>
+<tr>
+<td>counterparty_bank_code</td>
+<td>string</td>
+<td>Mã ngân hàng đối tác</td>
+<td><code>VIB</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>Ngân hàng bên kia</td>
+</tr>
+<tr>
+<td>counterparty_name</td>
+<td>string</td>
+<td>Tên đối tác</td>
+<td><code>Dang Thi Nhi</code>, <code>Ngo Ngoc Lan</code>, <code>VinGroup</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>Tên người nhận/gửi</td>
+</tr>
+<tr>
+<td>channel</td>
+<td>enum string</td>
+<td>Kênh giao dịch</td>
+<td><code>MOBILE</code>, <code>WEB</code>, <code>POS</code>, <code>ATM</code>, <code>QR</code>, <code>CARD</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>Kênh thực hiện</td>
+</tr>
+<tr>
+<td>description</td>
+<td>string</td>
+<td>Nội dung giao dịch</td>
+<td><code>Luong thang 12/2025</code>, <code>Chuyen tien cho Nhi</code>, <code>Thanh toan tai The Coffee House</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>Mô tả do user/system nhập</td>
+</tr>
+<tr>
+<td>status</td>
+<td>enum string</td>
+<td>Trạng thái</td>
+<td><code>SUCCESS</code>, <code>FAILED</code>, <code>REVERSED</code>, <code>PENDING</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>Hầu hết là SUCCESS</td>
+</tr>
+<tr>
+<td>balance_after</td>
+<td>numeric</td>
+<td>Số dư sau giao dịch</td>
+<td>-</td>
+<td>Yes</td>
+<td>-</td>
+<td>Có thể null</td>
+</tr>
+<tr>
+<td>external_reference</td>
+<td>string</td>
+<td>Mã tham chiếu external</td>
+<td><code>EXTSAL000001</code>, <code>EXTBAN000002</code>, <code>EXTCAR000004</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>Mã từ external banking API</td>
+</tr>
+<tr>
+<td>created_at</td>
+<td>timestamp string</td>
+<td>Thời điểm tạo record</td>
+<td><code>2025-12-01 01:03:29</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<h2>4. Important Values / Enums</h2>
+<h3>transaction_type</h3>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Meaning</th>
+<th>Direction</th>
+<th>Example Use Case</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>BANK_TRANSFER</td>
+<td>Chuyển khoản ngân hàng</td>
+<td>OUT (hoặc IN nếu nhận)</td>
+<td>"Chuyển tiền cho Bình"</td>
+</tr>
+<tr>
+<td>CARD_PAYMENT</td>
+<td>Thanh toán thẻ tại merchant</td>
+<td>OUT</td>
+<td>"Chi tiêu thẻ tín dụng"</td>
+</tr>
+<tr>
+<td>BILL_PAYMENT</td>
+<td>Thanh toán hóa đơn</td>
+<td>OUT</td>
+<td>"Trả tiền điện"</td>
+</tr>
+<tr>
+<td>PHONE_TOPUP</td>
+<td>Nạp điện thoại</td>
+<td>OUT</td>
+<td>"Nạp 100k cho số 09..."</td>
+</tr>
+<tr>
+<td>SALARY</td>
+<td>Nhận lương</td>
+<td>IN</td>
+<td>"Lương tháng 12"</td>
+</tr>
+<tr>
+<td>INTEREST</td>
+<td>Lãi suất</td>
+<td>IN</td>
+<td>"Lãi tiết kiệm"</td>
+</tr>
+<tr>
+<td>REFUND</td>
+<td>Hoàn tiền</td>
+<td>IN</td>
+<td>"Hoàn tiền đơn hàng"</td>
+</tr>
+<tr>
+<td>CASH_DEPOSIT</td>
+<td>Nạp tiền mặt</td>
+<td>IN</td>
+<td>"Nạp tiền tại ATM"</td>
+</tr>
+<tr>
+<td>CASH_WITHDRAWAL</td>
+<td>Rút tiền mặt</td>
+<td>OUT</td>
+<td>"Rút tiền ATM"</td>
+</tr>
+<tr>
+<td>FEE</td>
+<td>Phí ngân hàng</td>
+<td>OUT</td>
+<td>"Phí duy trì tài khoản"</td>
+</tr>
+</tbody>
+</table>
+<h3>direction</h3>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>IN</td>
+<td>Tiền vào (nhận lương, hoàn tiền, người khác chuyển đến)</td>
+</tr>
+<tr>
+<td>OUT</td>
+<td>Tiền ra (chuyển khoản, thanh toán, phí)</td>
+</tr>
+</tbody>
+</table>
+<h3>status</h3>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SUCCESS</td>
+<td>Giao dịch thành công</td>
+</tr>
+<tr>
+<td>FAILED</td>
+<td>Giao dịch thất bại</td>
+</tr>
+<tr>
+<td>REVERSED</td>
+<td>Đã hoàn/đảo</td>
+</tr>
+<tr>
+<td>PENDING</td>
+<td>Đang xử lý</td>
+</tr>
+</tbody>
+</table>
+<h3>channel</h3>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>MOBILE</td>
+<td>App mobile banking</td>
+</tr>
+<tr>
+<td>WEB</td>
+<td>Internet banking</td>
+</tr>
+<tr>
+<td>POS</td>
+<td>Máy POS tại cửa hàng</td>
+</tr>
+<tr>
+<td>ATM</td>
+<td>Máy ATM</td>
+</tr>
+<tr>
+<td>QR</td>
+<td>Quét mã QR</td>
+</tr>
+<tr>
+<td>CARD</td>
+<td>Giao dịch thẻ online</td>
+</tr>
+</tbody>
+</table>
+<h2>5. Relationships</h2>
+<ul>
+<li><code>transactions.cif_no</code> → <code>customers.cif_no</code></li>
+<li><code>transactions.account_no</code> → <code>accounts.account_no</code></li>
+<li><code>transactions.card_id</code> → <code>cards.card_id</code></li>
+<li><code>transactions.category_id</code> → <code>transaction_categories.category_id</code></li>
+<li><code>transactions.merchant_id</code> → <code>merchants.merchant_id</code></li>
+<li><code>transactions.biller_id</code> → <code>billers.biller_id</code></li>
+<li><code>transactions.beneficiary_id</code> → <code>beneficiaries.beneficiary_id</code></li>
+</ul>
+<h2>6. Simple Usage Examples</h2>
+<h3>Giao dịch gần đây nhất</h3>
+<div class="codehilite"><pre><span></span><code><span class="k">SELECT</span><span class="w"> </span><span class="n">transaction_ref</span><span class="p">,</span><span class="w"> </span><span class="n">amount</span><span class="p">,</span><span class="w"> </span><span class="n">direction</span><span class="p">,</span><span class="w"> </span><span class="n">transaction_type</span><span class="p">,</span><span class="w"> </span><span class="n">counterparty_name</span><span class="p">,</span><span class="w"> </span><span class="n">description</span><span class="p">,</span><span class="w"> </span><span class="n">transaction_time</span>
+<span class="k">FROM</span><span class="w"> </span><span class="n">transactions</span>
+<span class="k">WHERE</span><span class="w"> </span><span class="n">cif_no</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;CIF000001&#39;</span>
+<span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">transaction_time</span><span class="w"> </span><span class="k">DESC</span>
+<span class="k">LIMIT</span><span class="w"> </span><span class="mi">5</span><span class="p">;</span>
+</code></pre></div>
+
+<p>Dùng khi user hỏi "giao dịch gần đây của tôi".</p>
+<h3>Tổng chi tiêu tháng này</h3>
+<div class="codehilite"><pre><span></span><code><span class="k">SELECT</span><span class="w"> </span><span class="k">SUM</span><span class="p">(</span><span class="n">amount</span><span class="p">)</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="n">total_spent</span>
+<span class="k">FROM</span><span class="w"> </span><span class="n">transactions</span>
+<span class="k">WHERE</span><span class="w"> </span><span class="n">cif_no</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;CIF000001&#39;</span>
+<span class="w">  </span><span class="k">AND</span><span class="w"> </span><span class="n">direction</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;OUT&#39;</span>
+<span class="w">  </span><span class="k">AND</span><span class="w"> </span><span class="n">transaction_time</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="s1">&#39;2026-01-01&#39;</span>
+<span class="w">  </span><span class="k">AND</span><span class="w"> </span><span class="n">status</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;SUCCESS&#39;</span><span class="p">;</span>
+</code></pre></div>
+
+<p>Dùng khi user hỏi "tháng này tôi chi bao nhiêu".</p>
+<h3>Tìm giao dịch chuyển khoản cho một người</h3>
+<div class="codehilite"><pre><span></span><code><span class="k">SELECT</span><span class="w"> </span><span class="n">transaction_ref</span><span class="p">,</span><span class="w"> </span><span class="n">amount</span><span class="p">,</span><span class="w"> </span><span class="n">counterparty_name</span><span class="p">,</span><span class="w"> </span><span class="n">transaction_time</span><span class="p">,</span><span class="w"> </span><span class="n">description</span>
+<span class="k">FROM</span><span class="w"> </span><span class="n">transactions</span>
+<span class="k">WHERE</span><span class="w"> </span><span class="n">cif_no</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;CIF000001&#39;</span>
+<span class="w">  </span><span class="k">AND</span><span class="w"> </span><span class="n">transaction_type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;BANK_TRANSFER&#39;</span>
+<span class="w">  </span><span class="k">AND</span><span class="w"> </span><span class="n">counterparty_name</span><span class="w"> </span><span class="k">ILIKE</span><span class="w"> </span><span class="s1">&#39;%Binh%&#39;</span>
+<span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">transaction_time</span><span class="w"> </span><span class="k">DESC</span><span class="p">;</span>
+</code></pre></div>
+
+<p>Dùng khi user hỏi "tôi đã chuyển cho Bình bao nhiêu lần".</p>
+<h3>Chi tiêu thẻ theo merchant</h3>
+<div class="codehilite"><pre><span></span><code><span class="k">SELECT</span><span class="w"> </span><span class="n">t</span><span class="p">.</span><span class="n">amount</span><span class="p">,</span><span class="w"> </span><span class="n">t</span><span class="p">.</span><span class="n">transaction_time</span><span class="p">,</span><span class="w"> </span><span class="n">m</span><span class="p">.</span><span class="n">merchant_name</span><span class="p">,</span><span class="w"> </span><span class="n">t</span><span class="p">.</span><span class="n">description</span>
+<span class="k">FROM</span><span class="w"> </span><span class="n">transactions</span><span class="w"> </span><span class="n">t</span>
+<span class="k">JOIN</span><span class="w"> </span><span class="n">merchants</span><span class="w"> </span><span class="n">m</span><span class="w"> </span><span class="k">ON</span><span class="w"> </span><span class="n">t</span><span class="p">.</span><span class="n">merchant_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">m</span><span class="p">.</span><span class="n">merchant_id</span>
+<span class="k">WHERE</span><span class="w"> </span><span class="n">t</span><span class="p">.</span><span class="n">cif_no</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;CIF000001&#39;</span><span class="w"> </span><span class="k">AND</span><span class="w"> </span><span class="n">t</span><span class="p">.</span><span class="n">transaction_type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;CARD_PAYMENT&#39;</span>
+<span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">t</span><span class="p">.</span><span class="n">transaction_time</span><span class="w"> </span><span class="k">DESC</span>
+<span class="k">LIMIT</span><span class="w"> </span><span class="mi">10</span><span class="p">;</span>
+</code></pre></div>
+
+<p>Dùng khi user hỏi "giao dịch thẻ gần đây".</p>
+</div>
+</body>
+</html>

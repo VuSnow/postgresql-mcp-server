@@ -1,0 +1,935 @@
+Bạn là senior data engineer chuyên tạo mock data cho banking transaction agent demo.
+
+Nhiệm vụ:
+Hãy viết một Python script tên `seed_mock_data.py` để generate mock data CSV cho hệ thống AI banking assistant trong hackathon.
+
+Không output CSV rows trực tiếp.
+Không output markdown giải thích bên ngoài code.
+Chỉ output Python script hoàn chỉnh, chạy được ngay.
+
+==================================================
+CONTEXT
+==================================================
+
+Hệ thống là banking transaction agent theo mô hình verified workflow:
+
+User request
+→ Agent hiểu intent
+→ Agent resolve thông tin từ read-model database
+→ Guardian kiểm tra risk/permission/confirmation
+→ User xác nhận
+→ Executor gọi external banking API mock
+→ Lưu audit trace
+
+Database không phải core banking ledger thật.
+
+Database chỉ dùng để:
+1. Lưu read model/lịch sử giao dịch để Text2SQL agent truy vấn.
+2. Lưu thông tin cần thiết để agent tạo API payload: accounts, beneficiaries, billers, cards.
+3. Lưu action draft, api payload, api call log, audit log.
+4. Lưu fraud report và risk signal cho transaction screening.
+5. Demo các workflow chuyển tiền, nạp điện thoại, thanh toán hóa đơn, giao dịch thẻ, risk check, báo cáo lừa đảo, transaction screening.
+
+Không cho agent tự "thực hiện giao dịch" bằng cách sửa bảng transactions.
+transactions là transaction history/read model.
+
+==================================================
+SCRIPT REQUIREMENTS
+==================================================
+
+Script phải:
+- Dùng Python 3.
+- Chỉ dùng standard library: csv, json, uuid, random, datetime, os, pathlib.
+- Không dùng pandas.
+- Không dùng faker, trừ khi thật sự cần. Ưu tiên hardcode name lists để không phát sinh dependency.
+- Dùng random seed cố định:
+  - SEED = 42
+  - random.seed(SEED)
+- Dùng fixed current time:
+  - FIXED_NOW = datetime(2026, 6, 1, 12, 0, 0)
+  - Không dùng datetime.now().
+- Output 16 CSV files + 1 README.md vào folder `./mock_data/`.
+- Nếu folder/file đã tồn tại, overwrite safely.
+- Tự tạo folder nếu chưa tồn tại.
+- Mỗi CSV có header.
+- Encoding UTF-8.
+- JSON fields phải được serialize bằng `json.dumps(obj, ensure_ascii=False)`.
+- CSV phải được ghi bằng `csv.DictWriter`, không tự concat string.
+- Tất cả foreign key phải hợp lệ — validate sau khi generate.
+- Dữ liệu phải deterministic/reproducible khi chạy lại.
+- Không dùng thông tin cá nhân thật.
+- Không dùng full card number thật.
+- Không dùng số tài khoản/thẻ thật.
+- Generate theo thứ tự dependency:
+  customers → accounts → cards → beneficiaries → merchants → billers
+  → customer_biller_accounts → transaction_categories → transactions
+  → action_requests → api_call_logs → audit_logs
+  → fraud_reports → reported_accounts → reported_customers → fraud_decisions
+
+==================================================
+ID STRATEGY
+==================================================
+
+Dùng deterministic UUID:
+
+uuid.uuid5(uuid.NAMESPACE_DNS, f"{table_name}-{index}")
+
+Ví dụ:
+- uuid5("customers-1")
+- uuid5("accounts-1")
+- uuid5("transactions-1")
+
+Script phải giữ lookup dict/list trong memory để đảm bảo FK join được.
+
+==================================================
+ROW COUNTS
+==================================================
+
+- customers: 100
+- accounts: khoảng 160, mỗi customer 1-3
+- cards: khoảng 90
+- beneficiaries: khoảng 250
+- merchants: 80
+- billers: 20, fixed list
+- customer_biller_accounts: khoảng 180
+- transaction_categories: 20, fixed list
+- transactions: 5000
+- action_requests: 120
+- api_call_logs: chỉ tạo cho EXECUTED và FAILED actions, expected khoảng 65-75 rows
+- audit_logs: khoảng 600, 3-7 per action_request
+- fraud_reports: khoảng 8-15, báo cáo lừa đảo từ customers
+- reported_accounts: khoảng 8, aggregate risk per reported account
+- reported_customers: khoảng 3-5, aggregate risk per reported CIF
+- fraud_decisions: khoảng 15-20, kết quả screening cho transfers
+
+==================================================
+BANK CODE → NAME MAPPING
+==================================================
+
+BANK_MAP = {
+    "VCB": "Vietcombank",
+    "TCB": "Techcombank",
+    "BIDV": "BIDV",
+    "CTG": "VietinBank",
+    "VPB": "VPBank",
+    "MB": "MB Bank",
+    "ACB": "ACB",
+    "STB": "Sacombank",
+    "TPB": "TPBank",
+    "VIB": "VIB",
+}
+
+Khi generate beneficiary_bank_code và beneficiary_bank_name, PHẢI map đúng.
+
+==================================================
+CARRIER PREFIX MAPPING
+==================================================
+
+CARRIER_MAP = {
+    "09": "VIETTEL",
+    "03": "VIETTEL",
+    "07": "MOBIFONE",
+    "08": "VINAPHONE",
+}
+
+Dùng cho PHONE_TOPUP: từ phone number prefix → carrier name.
+
+==================================================
+MCC CODE MAPPING
+==================================================
+
+MCC_MAP = {
+    "FOOD": "5812",
+    "TRANSPORT": "4121",
+    "SHOPPING": "5691",
+    "ENTERTAINMENT": "7832",
+    "GROCERY": "5411",
+    "ECOMMERCE": "5399",
+    "DIGITAL_WALLET": "6012",
+    "ELECTRONICS": "5732",
+}
+
+==================================================
+TABLE 1: customers
+==================================================
+
+Purpose:
+Lưu thông tin khách hàng. Bảng gốc để scope dữ liệu theo user.
+
+Columns:
+
+customer_id       UUID            PK. uuid5("customers-{i}")
+cif_no            string          Unique. Format: CIF{i:06d}. Dùng để join everywhere.
+full_name         string          Tên Việt Nam giả. Ví dụ: Nguyen Van An, Tran Thi Linh.
+phone_number      string          Bắt đầu 03/07/08/09, 10 số. Giả.
+email             string          {slug}@example.com hoặc @mockbank.test.
+kyc_level         enum            BASIC(10%) | VERIFIED(70%) | ENHANCED(20%)
+status            enum            ACTIVE(90%) | SUSPENDED(7%) | CLOSED(3%)
+created_at        timestamp       2023-01-01 → 2025-11-30, trước transaction window.
+
+Rules:
+- 100 rows.
+- 90 customers ACTIVE.
+- Tên phải đa dạng: Nguyen, Tran, Le, Pham, Hoang, Vo, Dang, Bui, Do, Ngo.
+
+==================================================
+TABLE 2: accounts
+==================================================
+
+Purpose:
+Lưu tài khoản ngân hàng. Dùng để lấy tài khoản nguồn cho API payload.
+
+Columns:
+
+account_id        UUID            PK.
+account_no        string          Unique. 10-13 chữ số giả. Không dùng số thật.
+cif_no            string          FK → customers.cif_no.
+account_type      enum            PAYMENT | SAVINGS | CREDIT_CARD_SETTLEMENT
+currency          string          Luôn "VND".
+balance           numeric         500,000 – 500,000,000.
+available_balance numeric         <= balance. Thường balance * random(0.85, 1.0).
+status            enum            ACTIVE(90%) | FROZEN(7%) | CLOSED(3%)
+opened_at         timestamp       Trước transaction window.
+
+Rules:
+- Khoảng 160 rows.
+- Mỗi customer 1-3 accounts.
+- Mỗi ACTIVE customer PHẢI có ít nhất 1 ACTIVE PAYMENT account.
+- CREDIT_CARD_SETTLEMENT là optional. Nếu phức tạp để giữ consistency với CREDIT card thì có thể không generate loại account này. Không được tạo rule làm validation fail.
+
+==================================================
+TABLE 3: cards
+==================================================
+
+Purpose:
+Lưu thẻ. Dùng cho CARD_PAYMENT, lock/unlock, limit change.
+
+Columns:
+
+card_id           UUID            PK.
+cif_no            string          FK → customers.cif_no.
+account_no        string          FK → accounts.account_no. PHẢI thuộc cùng cif_no.
+masked_card_no    string          "**** **** **** {last4}". last4 = random 4 digits.
+card_type         enum            DEBIT(60%) | CREDIT(40%)
+card_network      enum            VISA(40%) | MASTERCARD(30%) | NAPAS(30%)
+credit_limit      numeric|null    CREDIT: 20,000,000 – 200,000,000. DEBIT: null.
+available_limit   numeric|null    CREDIT: 40%-100% of credit_limit. DEBIT: null.
+status            enum            ACTIVE(80%) | LOCKED(15%) | EXPIRED(5%)
+issued_at         timestamp       Trước transaction window.
+
+Rules:
+- Khoảng 90 rows.
+- Khoảng 60% customers có card.
+- card.account_no PHẢI thuộc cùng cif_no.
+
+==================================================
+TABLE 4: beneficiaries
+==================================================
+
+Purpose:
+Lưu người nhận chuyển khoản đã lưu. Dùng cho "chuyển cho Minh", "chuyển thuê nhà".
+
+Columns:
+
+beneficiary_id          UUID        PK.
+cif_no                  string      FK → customers.cif_no.
+beneficiary_name        string      Tên người nhận giả.
+beneficiary_account_no  string      Số TK người nhận giả.
+beneficiary_bank_code   enum        VCB|TCB|BIDV|CTG|VPB|MB|ACB|STB|TPB|VIB
+beneficiary_bank_name   string      PHẢI map đúng theo BANK_MAP.
+nickname                string|null Gợi nhớ: Minh, Mẹ, Anh Nam, Tiền nhà.
+is_saved                boolean     true(70%) | false(30%)
+last_used_at            timestamp|null
+created_at              timestamp
+
+Rules:
+- Khoảng 250 rows.
+- Ít nhất 20 customers có beneficiary tên chứa "Minh".
+- Ít nhất 5 customers có 2 beneficiaries cùng nickname "Minh" để tạo ambiguity.
+- Ít nhất 10 customers có beneficiary nickname "Tiền nhà" hoặc "Thuê nhà".
+
+==================================================
+TABLE 5: merchants
+==================================================
+
+Purpose:
+Lưu merchant cho CARD_PAYMENT, spending analysis.
+
+Columns:
+
+merchant_id         UUID        PK.
+merchant_name       string      Brand/context Việt Nam: Shopee, Grab, Highlands Coffee, WinMart, Circle K, The Coffee House, Lazada, Tiki, Be, Baemin, GrabFood, Pho 24, ...
+merchant_category   enum        FOOD(25%) | TRANSPORT(15%) | SHOPPING(15%) | ENTERTAINMENT(10%) | GROCERY(10%) | ECOMMERCE(10%) | DIGITAL_WALLET(10%) | ELECTRONICS(5%)
+mcc_code            string      Map từ MCC_MAP theo merchant_category.
+city                string      Ha Noi(40%) | Ho Chi Minh(40%) | Da Nang(10%) | Hai Phong(5%) | Can Tho(5%)
+country             string      Luôn "VN".
+status              enum        ACTIVE(95%) | INACTIVE(5%)
+
+Rules:
+- 80 rows.
+- Include nhiều FOOD merchants: Highlands Coffee, The Coffee House, Pho 24, Baemin, GrabFood, Jollibee, KFC, Lotteria, Pizza 4P's.
+- Include vài merchant lạ để support anomaly: Casino Online, Unknown Merchant, Overseas Shop.
+
+==================================================
+TABLE 6: billers
+==================================================
+
+Purpose:
+Nhà cung cấp hóa đơn điện/nước/internet/phone trả sau.
+
+Columns:
+
+biller_id       UUID        PK.
+biller_code     string      Unique. Dùng trong bill payment API payload.
+biller_name     string
+biller_type     enum        ELECTRICITY | WATER | INTERNET | PHONE_POSTPAID
+provider        string
+status          enum        ACTIVE | INACTIVE
+
+Fixed 20 rows:
+
+EVN_HANOI            | EVN Ha Noi               | ELECTRICITY      | EVN
+EVN_HCMC             | EVN Ho Chi Minh          | ELECTRICITY      | EVN
+EVN_DANANG           | EVN Da Nang              | ELECTRICITY      | EVN
+EVN_SOUTH            | EVN Mien Nam             | ELECTRICITY      | EVN
+EVN_CENTRAL          | EVN Mien Trung           | ELECTRICITY      | EVN
+SAWACO               | SAWACO                   | WATER            | SAWACO
+HAWACO               | HAWACO Ha Noi            | WATER            | HAWACO
+DAWACO               | DAWACO Da Nang           | WATER            | DAWACO
+BINH_DUONG_WATER     | Nuoc Binh Duong          | WATER            | BIWASE
+DONG_NAI_WATER       | Nuoc Dong Nai            | WATER            | DONAWACO
+VNPT_NET_HN          | VNPT Internet Ha Noi     | INTERNET         | VNPT
+VNPT_NET_HCM         | VNPT Internet HCM        | INTERNET         | VNPT
+FPT_NET_HN           | FPT Internet Ha Noi      | INTERNET         | FPT
+FPT_NET_HCM          | FPT Internet HCM         | INTERNET         | FPT
+VIETTEL_NET          | Viettel Internet         | INTERNET         | VIETTEL
+CMC_NET              | CMC Internet             | INTERNET         | CMC
+SCTV_NET             | SCTV Internet            | INTERNET         | SCTV
+VNPT_PHONE           | VNPT Dien thoai tra sau  | PHONE_POSTPAID   | VNPT
+VIETTEL_PHONE        | Viettel tra sau          | PHONE_POSTPAID   | VIETTEL
+MOBI_PHONE           | Mobifone tra sau         | PHONE_POSTPAID   | MOBIFONE
+
+==================================================
+TABLE 7: customer_biller_accounts
+==================================================
+
+Purpose:
+Liên kết customer với mã khách hàng hóa đơn. Quan trọng cho "thanh toán hóa đơn điện".
+
+Columns:
+
+customer_biller_account_id  UUID        PK.
+cif_no                      string      FK → customers.cif_no.
+biller_id                   UUID        FK → billers.biller_id.
+customer_bill_code          string      Prefix: PD(điện), PW(nước), PI(internet), PP(phone).
+alias                       string      "Nhà Hà Nội", "Nhà bố mẹ", "Căn hộ", "Internet nhà".
+status                      enum        ACTIVE(90%) | INACTIVE(10%)
+last_paid_at                timestamp|null
+
+Rules:
+- Khoảng 180 rows.
+- Phần lớn customers có ít nhất 1 EVN biller account.
+- Nhiều customers có 2-4 biller accounts: điện + nước + internet.
+
+==================================================
+TABLE 8: transaction_categories
+==================================================
+
+Purpose:
+Phân loại giao dịch cho Text2SQL spending queries.
+
+Fixed 20 rows:
+
+FOOD                 | Ăn uống                    | SPENDING
+SHOPPING             | Mua sắm                    | SPENDING
+TRANSPORT            | Di chuyển                  | SPENDING
+ENTERTAINMENT        | Giải trí                   | SPENDING
+GROCERIES            | Siêu thị / Tạp hóa         | SPENDING
+CARD_PAYMENT         | Thanh toán thẻ             | SPENDING
+TRANSFER             | Chuyển khoản               | TRANSFER
+FAMILY_TRANSFER      | Chuyển khoản gia đình      | TRANSFER
+RENT                 | Tiền thuê nhà              | TRANSFER
+SALARY               | Lương                      | INCOME
+INTEREST             | Lãi suất                   | INCOME
+REFUND               | Hoàn tiền                  | INCOME
+CASH_DEPOSIT         | Nạp tiền mặt               | INCOME
+BILL_ELECTRICITY     | Hóa đơn điện               | BILL
+BILL_WATER           | Hóa đơn nước               | BILL
+BILL_INTERNET        | Hóa đơn internet           | BILL
+PHONE_TOPUP          | Nạp điện thoại             | BILL
+BANK_FEE             | Phí ngân hàng              | FEE
+CASH_WITHDRAWAL      | Rút tiền mặt               | CASH
+OTHER                | Khác                       | OTHER
+
+==================================================
+TABLE 9: transactions
+==================================================
+
+Purpose:
+Lịch sử giao dịch/read model. Dùng cho Text2SQL, spending insight, tìm người nhận cũ, tìm giao dịch thẻ/hóa đơn/nạp tiền.
+
+Columns:
+
+transaction_id          UUID            PK.
+transaction_ref         string          Unique. Format: TXN{YYYYMM}{seq:06d}.
+cif_no                  string          FK → customers.cif_no.
+account_no              string          FK → accounts.account_no. PHẢI thuộc cùng cif_no.
+card_id                 UUID|null       Có khi CARD_PAYMENT. PHẢI thuộc cùng cif_no.
+transaction_time        timestamp       Trong 6 tháng: 12/2025 – 05/2026.
+amount                  numeric         Luôn dương.
+currency                string          "VND".
+direction               enum            IN | OUT.
+transaction_type        enum            BANK_TRANSFER | CARD_PAYMENT | BILL_PAYMENT | PHONE_TOPUP | CASH_WITHDRAWAL | CASH_DEPOSIT | SALARY | FEE | INTEREST | REFUND
+category_id             UUID            FK → transaction_categories.category_id.
+merchant_id             UUID|null       Cho CARD_PAYMENT.
+biller_id               UUID|null       Cho BILL_PAYMENT.
+beneficiary_id          UUID|null       Cho BANK_TRANSFER. PHẢI thuộc cùng cif_no.
+counterparty_account_no string|null     Cho BANK_TRANSFER và PHONE_TOPUP.
+counterparty_bank_code  string|null     Cho BANK_TRANSFER.
+counterparty_name       string|null     Cho BANK_TRANSFER. Cho PHONE_TOPUP = phone number.
+channel                 enum            MOBILE|WEB|ATM|POS|QR|CARD
+description             text            Pattern theo type.
+status                  enum            SUCCESS(95%) | FAILED(3%) | REVERSED(1%) | PENDING(1%)
+balance_after           numeric|null
+external_reference      string|null     Cho SUCCESS transactions. Format: EXT{TYPE}{seq:06d}.
+created_at              timestamp       transaction_time + 1-10 seconds.
+
+balance_after rule:
+- balance_after nullable.
+- Populate ít nhất 30-50% transactions gần nhất theo account.
+- Không cần exact core ledger.
+- Nếu populate thì phải là số hợp lý, không âm, và gần với account balance pattern.
+- Không để Text2SQL demo bị toàn null ở các giao dịch gần nhất.
+
+Amount ranges:
+- BANK_TRANSFER:    100,000 – 50,000,000
+- CARD_PAYMENT:     20,000 – 5,000,000
+- BILL_PAYMENT:     50,000 – 3,000,000
+- PHONE_TOPUP:      chọn từ [10000, 20000, 50000, 100000, 200000, 500000]
+- CASH_WITHDRAWAL:  500,000 – 10,000,000, bội số 50,000
+- CASH_DEPOSIT:     1,000,000 – 50,000,000
+- SALARY:           8,000,000 – 80,000,000
+- FEE:              5,500 – 150,000
+- INTEREST:         10,000 – 2,000,000
+- REFUND:           20,000 – 5,000,000
+
+Direction mapping:
+- OUT: BANK_TRANSFER(out), CARD_PAYMENT, BILL_PAYMENT, PHONE_TOPUP, CASH_WITHDRAWAL, FEE
+- IN: SALARY, INTEREST, REFUND, CASH_DEPOSIT, BANK_TRANSFER(in)
+
+Category mapping:
+- BANK_TRANSFER → TRANSFER | FAMILY_TRANSFER | RENT
+- CARD_PAYMENT → FOOD | SHOPPING | TRANSPORT | ENTERTAINMENT | GROCERIES | CARD_PAYMENT, match merchant_category nếu có thể
+- BILL_PAYMENT → BILL_ELECTRICITY | BILL_WATER | BILL_INTERNET, match biller_type
+- PHONE_TOPUP → PHONE_TOPUP
+- CASH_WITHDRAWAL → CASH_WITHDRAWAL
+- CASH_DEPOSIT → CASH_DEPOSIT
+- SALARY → SALARY
+- FEE → BANK_FEE
+- INTEREST → INTEREST
+- REFUND → REFUND
+
+PHONE_TOPUP convention:
+- transaction_type = PHONE_TOPUP
+- category = PHONE_TOPUP
+- direction = OUT
+- counterparty_account_no = phone number, ví dụ "0981234567"
+- counterparty_name = same phone number
+- counterparty_bank_code = null
+- merchant_id = null
+- biller_id = null
+- beneficiary_id = null
+- description = "Nap dien thoai {carrier} {phone_number}"
+- carrier = CARRIER_MAP[phone[:2]]
+
+BANK_TRANSFER convention:
+- Nếu OUT: có counterparty_account_no, counterparty_bank_code, counterparty_name.
+- Nếu match beneficiary: beneficiary_id không null.
+- description ví dụ "Chuyen tien cho Minh".
+
+BILL_PAYMENT convention:
+- biller_id không null.
+- description ví dụ "Thanh toan hoa don dien EVN_HANOI PD123456789".
+
+CARD_PAYMENT convention:
+- card_id không null.
+- merchant_id không null.
+- channel = CARD hoặc POS hoặc QR.
+
+Transaction type distribution:
+- BANK_TRANSFER:    1500
+- CARD_PAYMENT:     1250
+- BILL_PAYMENT:     600
+- PHONE_TOPUP:      500
+- CASH_WITHDRAWAL:  400
+- CASH_DEPOSIT:     150
+- SALARY:           250
+- FEE:              200
+- INTEREST:         100
+- REFUND:           50
+
+Time distribution:
+- Tháng 5/2026: 2000 rows
+- Tháng 4/2026: 1250 rows
+- Tháng 3/2026: 750 rows
+- Tháng 2/2026: 500 rows
+- Tháng 1/2026: 300 rows
+- Tháng 12/2025: 200 rows
+- SALARY: ngày 1-5 hoặc 25-30.
+- BILL_PAYMENT: ngày 1-10.
+- CARD_PAYMENT: 11h-22h.
+- Anomaly: 2h-5h.
+
+==================================================
+TABLE 10: action_requests
+==================================================
+
+Purpose:
+Lưu yêu cầu hành động do agent tạo trước khi gọi external API.
+
+Columns:
+
+action_id               UUID        PK.
+cif_no                  string      FK → customers.cif_no.
+action_type             enum        TRANSFER(40%) | PHONE_TOPUP(15%) | BILL_PAYMENT(20%) | CARD_LOCK(10%) | CARD_UNLOCK(8%) | CARD_LIMIT_CHANGE(7%)
+status                  enum        DRAFT(5%) | MISSING_INFO(10%) | PENDING_CONFIRMATION(10%) | PENDING_OTP(5%) | READY_TO_EXECUTE(5%) | EXECUTED(50%) | FAILED(8%) | BLOCKED(7%)
+user_text               text
+api_name                enum|null   external_transfer_api | external_phone_topup_api | external_bill_payment_api | external_card_service_api
+api_payload             JSON string Payload gửi external API. json.dumps().
+resolved_entities       JSON string Entity đã extract/resolve. json.dumps().
+missing_fields          JSON string List fields thiếu. json.dumps().
+risk_score              numeric     0.0 – 1.0.
+risk_tier               enum        GREEN | YELLOW | ORANGE | RED
+requires_confirmation   boolean
+requires_otp            boolean
+created_at              timestamp
+updated_at              timestamp   >= created_at.
+
+Risk tier mapping:
+- GREEN: risk_score < 0.3
+- YELLOW: 0.3 <= risk_score < 0.6
+- ORANGE: 0.6 <= risk_score < 0.8
+- RED: risk_score >= 0.8
+
+Risk distribution:
+- 60% GREEN
+- 25% YELLOW
+- 10% ORANGE
+- 5% RED
+
+Business rules:
+- risk_tier = RED → status PHẢI là BLOCKED.
+- status = MISSING_INFO → missing_fields KHÔNG được rỗng [].
+- status = EXECUTED → api_payload PHẢI có đủ required fields cho action_type.
+- status = BLOCKED → không có api_call_logs SUCCESS.
+- requires_confirmation = true nếu risk_tier != GREEN hoặc amount > 5,000,000.
+- requires_otp = true nếu YELLOW/ORANGE hoặc amount > 10,000,000.
+- RED thì blocked, không execute.
+
+Required user_text examples:
+- "Chuyển cho Minh 2 triệu như tháng trước"
+- "Nạp điện thoại 100k cho số lần trước"
+- "Thanh toán hóa đơn điện hôm nay"
+- "Khóa thẻ tín dụng của tôi"
+- "Chuyển 50 triệu cho người nhận mới"
+- "Tăng hạn mức thẻ lên 100 triệu"
+- "Chuyển tiền thuê nhà tháng này"
+- "Mở khóa thẻ Visa"
+- "Trả tiền nước tháng này"
+- "Nạp 200k cho mẹ"
+
+Payload examples:
+
+TRANSFER:
+{"from_account_no":"...","to_account_no":"...","to_bank_code":"VCB","to_name":"Nguyen Van Minh","amount":2000000,"currency":"VND","description":"Chuyen tien cho Minh"}
+
+PHONE_TOPUP:
+{"from_account_no":"...","phone_number":"0987654321","telco":"VIETTEL","amount":100000,"currency":"VND"}
+
+BILL_PAYMENT:
+{"from_account_no":"...","biller_code":"EVN_HANOI","customer_bill_code":"PD123456789","amount":1250000,"currency":"VND"}
+
+CARD_LOCK:
+{"card_id":"...","masked_card_no":"**** **** **** 1234","action":"LOCK","reason":"USER_REQUEST"}
+
+CARD_LIMIT_CHANGE:
+{"card_id":"...","masked_card_no":"**** **** **** 5678","new_limit":100000000,"currency":"VND"}
+
+==================================================
+TABLE 11: api_call_logs
+==================================================
+
+Purpose:
+Lưu log gọi external API mock. Chứng minh agent không tự sửa DB mà gọi external service.
+
+Columns:
+
+api_call_id         UUID        PK.
+action_id           UUID        FK → action_requests.action_id.
+api_name            enum        external_transfer_api | external_phone_topup_api | external_bill_payment_api | external_card_service_api
+request_payload     JSON string Nên giống action_requests.api_payload.
+response_payload    JSON string Response giả từ external API.
+http_status         integer     200 | 400 | 403 | 409 | 500
+status              enum        SUCCESS | FAILED
+created_at          timestamp   PHẢI > action_requests.created_at. +1-5 seconds.
+
+Rules:
+- Chỉ tạo api_call_logs cho actions có status = EXECUTED hoặc FAILED.
+- EXECUTED action → api_call_logs.status = SUCCESS, http_status = 200.
+- FAILED action → api_call_logs.status = FAILED, http_status = 400 hoặc 500.
+- BLOCKED action → KHÔNG có api_call_logs vì bị chặn trước khi gọi API.
+- MISSING_INFO action → KHÔNG có api_call_logs.
+- Expected row count khoảng 65-75, phụ thuộc số EXECUTED/FAILED actions.
+
+Response examples:
+SUCCESS:
+{"external_reference":"EXTTRF000001","status":"SUCCESS","message":"Transfer completed"}
+
+FAILED:
+{"error_code":"INSUFFICIENT_FUNDS","message":"Not enough balance"}
+
+==================================================
+TABLE 12: audit_logs
+==================================================
+
+Purpose:
+Audit trail của workflow. Mỗi action_request có 3-7 audit events.
+
+Columns:
+
+audit_id        UUID            PK.
+action_id       UUID|null       FK → action_requests.action_id. Null cho query-only events.
+cif_no          string          FK → customers.cif_no.
+event_type      enum
+actor           enum            USER | ORCHESTRATOR | TRANSACTION_AGENT | TEXT2SQL_AGENT | GUARDIAN | EXECUTOR | EXTERNAL_API
+event_payload   JSON string     json.dumps().
+created_at      timestamp       PHẢI tăng dần cho cùng action_id.
+
+event_type values:
+- USER_REQUEST_RECEIVED
+- INTENT_CLASSIFIED
+- ENTITY_EXTRACTED
+- RECIPIENT_RESOLVED
+- BILLER_RESOLVED
+- CARD_RESOLVED
+- TEXT2SQL_GENERATED
+- SQL_VALIDATED
+- RISK_CHECKED
+- USER_CONFIRMED
+- OTP_VERIFIED
+- API_CALLED
+- ACTION_EXECUTED
+- ACTION_FAILED
+- ACTION_BLOCKED
+
+Typical timeline:
+1. USER_REQUEST_RECEIVED
+2. INTENT_CLASSIFIED
+3. ENTITY_EXTRACTED
+4. RECIPIENT_RESOLVED / BILLER_RESOLVED / CARD_RESOLVED
+5. RISK_CHECKED
+6. USER_CONFIRMED, nếu cần
+7. OTP_VERIFIED, nếu requires_otp
+8. API_CALLED, nếu EXECUTED/FAILED
+9. ACTION_EXECUTED / ACTION_FAILED / ACTION_BLOCKED
+
+==================================================
+TABLE 13: fraud_reports
+==================================================
+
+Purpose:
+Lưu báo cáo lừa đảo từ user. Khi khách hàng phát hiện bị lừa đảo, agent tiếp nhận và tạo fraud report.
+
+Columns:
+
+report_id               UUID        PK.
+reporter_cif_no         string      FK → customers.cif_no. Người báo cáo.
+transaction_ref         string|null FK → transactions.transaction_ref. Giao dịch liên quan.
+reported_account_no     string      Số tài khoản bị báo cáo.
+reported_bank_code      string      Bank code tài khoản bị báo cáo. Từ BANK_MAP.
+reported_customer_cif   string|null CIF người bị báo cáo, nếu biết.
+fraud_type              enum        SCAM_TRANSFER(40%) | FAKE_INVESTMENT(20%) | IMPERSONATION(20%) | PHISHING(10%) | OTHER(10%)
+contact_channel         enum        ZALO(30%) | FACEBOOK(25%) | SMS(20%) | PHONE_CALL(15%) | OTHER(10%)
+aftermath               enum        MONEY_LOST(50%) | PARTIAL_RECOVERY(20%) | NO_LOSS(15%) | PENDING(15%)
+reason_text             text        Mô tả ngắn. Ví dụ: "Bị lừa chuyển tiền mua hàng online", "Giả danh công an yêu cầu chuyển tiền".
+has_evidence            boolean     true(60%) | false(40%)
+confidence_score        numeric     0.5 – 1.0. Mức tin cậy của báo cáo.
+status                  enum        SUBMITTED(30%) | VERIFIED(40%) | REJECTED(15%) | RESOLVED(15%)
+created_at              timestamp   Trong 3 tháng gần nhất: 03/2026 – 05/2026.
+
+Rules:
+- 8-15 rows.
+- reporter_cif_no phải là ACTIVE customer.
+- reported_account_no KHÔNG cần thuộc bảng accounts (vì là tài khoản bên ngoài hệ thống).
+- Nếu transaction_ref != null, phải thuộc transactions.transaction_ref.
+- Ít nhất 3 reports cho cùng 1 reported_account_no để demo aggregate risk.
+- Ít nhất 2 reported_account_no thuộc cùng reported_customer_cif.
+
+==================================================
+TABLE 14: reported_accounts
+==================================================
+
+Purpose:
+Aggregate risk signal cho mỗi tài khoản bị báo cáo. Dùng cho transaction screening: khi user chuyển tiền, Guardian check receiver account có nằm trong reported_accounts không.
+
+Columns:
+
+reported_account_id     UUID        PK.
+account_no              string      Unique. Số tài khoản bị báo cáo.
+bank_code               string      Bank code. Từ BANK_MAP.
+linked_customer_cif     string|null CIF chủ tài khoản bị báo cáo, nếu biết.
+valid_report_count      integer     Số report status = VERIFIED hoặc SUBMITTED.
+unique_reporter_count   integer     Số người báo cáo khác nhau (distinct reporter_cif_no).
+total_reported_amount   numeric     Tổng số tiền bị báo cáo mất.
+avg_confidence_score    numeric     Trung bình confidence_score từ reports.
+risk_score              numeric     0.0 – 1.0. Tính từ các metrics trên.
+risk_level              enum        LOW | MEDIUM | HIGH | CRITICAL
+status                  enum        MONITORING(30%) | FLAGGED(40%) | BLOCKED(30%)
+first_reported_at       timestamp
+last_reported_at        timestamp   >= first_reported_at.
+
+Rules:
+- 8 rows.
+- Mỗi row là unique account_no.
+- valid_report_count >= 1.
+- risk_level mapping: LOW < 0.3, MEDIUM 0.3-0.6, HIGH 0.6-0.8, CRITICAL >= 0.8.
+- Ít nhất 2 accounts risk_level = HIGH hoặc CRITICAL.
+- account_no phải khớp với reported_account_no trong fraud_reports.
+- status = BLOCKED nếu risk_level = CRITICAL.
+
+==================================================
+TABLE 15: reported_customers
+==================================================
+
+Purpose:
+Aggregate risk cho CIF bị báo cáo (chủ sở hữu nhiều tài khoản bị report). Dùng khi 1 người sở hữu nhiều tài khoản bị báo cáo.
+
+Columns:
+
+reported_customer_id    UUID        PK.
+cif_no                  string      Unique. CIF bị báo cáo.
+reported_account_count  integer     Số tài khoản bị report thuộc CIF này.
+valid_report_count      integer     Tổng report liên quan.
+total_reported_amount   numeric     Tổng số tiền bị báo cáo mất.
+risk_score              numeric     0.0 – 1.0.
+risk_level              enum        LOW | MEDIUM | HIGH | CRITICAL
+status                  enum        MONITORING(30%) | FLAGGED(40%) | BLOCKED(30%)
+created_at              timestamp
+updated_at              timestamp   >= created_at.
+
+Rules:
+- 3-5 rows.
+- Mỗi row là CIF sở hữu ít nhất 1 reported_account.
+- reported_account_count >= 1.
+- cif_no KHÔNG cần thuộc bảng customers (vì là khách bên ngoài hệ thống).
+- linked_customer_cif trong reported_accounts phải match cif_no ở đây.
+
+==================================================
+TABLE 16: fraud_decisions
+==================================================
+
+Purpose:
+Lưu kết quả screening khi user chuyển tiền. Guardian lookup receiver account → nếu match reported_accounts → tạo fraud_decision: ALLOW / WARN / BLOCK.
+
+Columns:
+
+decision_id             UUID        PK.
+action_id               UUID        FK → action_requests.action_id. TRANSFER actions.
+receiver_account_no     string      Tài khoản nhận tiền.
+receiver_bank_code      string      Bank code.
+matched_report_count    integer     Số report match account nhận.
+risk_score              numeric     0.0 – 1.0.
+risk_level              enum        LOW | MEDIUM | HIGH | CRITICAL
+decision                enum        ALLOW(40%) | WARN(35%) | BLOCK(25%)
+reason_codes            JSON string json.dumps(). Ví dụ: ["REPORTED_ACCOUNT", "HIGH_RISK_SCORE", "MULTIPLE_REPORTERS"]
+created_at              timestamp
+
+Rules:
+- 15-20 rows.
+- action_id phải FK đúng, chỉ link tới action_type = TRANSFER.
+- Nếu decision = BLOCK → action.status nên là BLOCKED.
+- Nếu decision = ALLOW và matched_report_count = 0 → risk_score = 0.
+- Nếu decision = WARN → risk_level = MEDIUM hoặc HIGH.
+- Ít nhất 5 decisions có matched_report_count > 0 (có match reported_accounts).
+- Ít nhất 3 decisions = BLOCK.
+- receiver_account_no nên có ít nhất 3 rows match với reported_accounts.account_no.
+
+==================================================
+REQUIRED USE CASE PATTERNS
+==================================================
+
+Script PHẢI cố tình tạo data cho các use case sau:
+
+1. "Chuyển cho Minh 2 triệu như tháng trước"
+- Ít nhất 20 customers có BANK_TRANSFER lặp lại cho beneficiary tên "Minh" trong tháng 4/2026.
+- Ít nhất 5 customers có 2 beneficiaries cùng nickname "Minh" để tạo ambiguity.
+- beneficiary có đủ: account_no, bank_code, name.
+- Transactions có beneficiary_id, counterparty_account_no, counterparty_bank_code, counterparty_name khớp.
+
+2. "Tháng này tôi tiêu bao nhiêu cho ăn uống?"
+- Nhiều CARD_PAYMENT category FOOD trong tháng 5/2026.
+- Merchants: Highlands Coffee, The Coffee House, Pho 24, Baemin, GrabFood, Jollibee.
+
+3. "3 giao dịch thẻ gần nhất của tôi"
+- Nhiều CARD_PAYMENT có card_id, merchant_id, transaction_time rõ ràng.
+
+4. "Thanh toán hóa đơn điện hôm nay"
+- Nhiều customers có customer_biller_accounts liên kết EVN.
+- Có lịch sử BILL_PAYMENT hàng tháng.
+- Có action_requests type BILL_PAYMENT.
+
+5. "Nạp điện thoại 100k cho số đã nạp lần trước"
+- Có PHONE_TOPUP lặp lại cho cùng phone number.
+- counterparty_name = phone number.
+- counterparty_account_no = same phone number.
+- phone prefix phải thuộc CARRIER_MAP.
+
+6. "Có giao dịch nào bất thường không?"
+Tạo ít nhất 30 transactions bất thường:
+- amount > 5x trung bình customer
+- chuyển tiền 2h-5h sáng
+- người nhận mới, beneficiary_id = null
+- 3+ giao dịch nhỏ trong 5 phút
+- card payment ở city khác thường
+- tương ứng action_requests risk_tier ORANGE/RED.
+
+7. "Tôi bị trừ phí gì tháng này?"
+- FEE transactions tháng 5/2026:
+  - "Phi duy tri tai khoan" 11,000
+  - "Phi SMS Banking" 11,000
+  - "Phi thuong nien the" 150,000
+  - "Phi chuyen tien ngoai he thong" 5,500 – 33,000
+
+8. "Lương tháng này vào chưa?"
+- SALARY transactions direction=IN, ngày 1-5 tháng 5/2026.
+- description: "Luong thang 05/2026" hoặc "Luong T05/2026 - {company}".
+
+9. "Tôi muốn báo cáo lừa đảo"
+- Có fraud_reports từ nhiều customers.
+- Ít nhất 3 reports cho cùng 1 reported_account_no.
+- reported_accounts phải có aggregate data đúng.
+- fraud_type đa dạng: SCAM_TRANSFER, FAKE_INVESTMENT, IMPERSONATION.
+
+10. "Chuyển tiền cho tài khoản X" nhưng X bị reported
+- Ít nhất 3 fraud_decisions có matched_report_count > 0.
+- Ít nhất 3 fraud_decisions = BLOCK.
+- receiver_account_no match reported_accounts.account_no.
+- action_id link đúng tới TRANSFER actions.
+
+11. "Tài khoản này có an toàn không?" (transaction screening)
+- reported_accounts có đủ risk_level: LOW, MEDIUM, HIGH, CRITICAL.
+- Ít nhất 2 accounts risk_level HIGH/CRITICAL.
+- status = BLOCKED cho CRITICAL accounts.
+
+==================================================
+VALIDATION FUNCTION
+==================================================
+
+Script PHẢI có function `validate_data()` kiểm tra:
+
+FK integrity:
+- accounts.cif_no ∈ customers.cif_no
+- cards.cif_no ∈ customers.cif_no
+- cards.account_no ∈ accounts có cùng cif_no
+- beneficiaries.cif_no ∈ customers.cif_no
+- customer_biller_accounts.cif_no ∈ customers.cif_no
+- customer_biller_accounts.biller_id ∈ billers.biller_id
+- transactions.cif_no ∈ customers.cif_no
+- transactions.account_no ∈ accounts có cùng cif_no
+- transactions.card_id nếu != null ∈ cards có cùng cif_no
+- transactions.merchant_id nếu != null ∈ merchants.merchant_id
+- transactions.biller_id nếu != null ∈ billers.biller_id
+- transactions.beneficiary_id nếu != null ∈ beneficiaries có cùng cif_no
+- transactions.category_id ∈ transaction_categories.category_id
+- action_requests.cif_no ∈ customers.cif_no
+- api_call_logs.action_id ∈ action_requests.action_id
+- audit_logs.action_id nếu != null ∈ action_requests.action_id
+- audit_logs.cif_no ∈ customers.cif_no
+- fraud_reports.reporter_cif_no ∈ customers.cif_no
+- fraud_reports.transaction_ref nếu != null ∈ transactions.transaction_ref
+- fraud_decisions.action_id ∈ action_requests.action_id (chỉ TRANSFER actions)
+- reported_accounts.account_no phải match ít nhất 1 fraud_reports.reported_account_no
+- reported_customers.cif_no phải match ít nhất 1 reported_accounts.linked_customer_cif
+
+Business rules:
+- Mỗi ACTIVE customer có ít nhất 1 ACTIVE PAYMENT account.
+- CARD_PAYMENT transaction có card_id != null.
+- CARD_PAYMENT transaction có merchant_id != null.
+- BILL_PAYMENT transaction có biller_id != null.
+- BANK_TRANSFER OUT có counterparty_account_no, counterparty_bank_code, counterparty_name != null.
+- PHONE_TOPUP có counterparty_name là phone number.
+- PHONE_TOPUP có counterparty_account_no == counterparty_name.
+- PHONE_TOPUP phone prefix nằm trong CARRIER_MAP.
+- action.status == MISSING_INFO → missing_fields != [].
+- action.risk_tier == RED → action.status == BLOCKED.
+- action.status == EXECUTED → có api_call_logs.status == SUCCESS.
+- action.status == BLOCKED → không có api_call_logs SUCCESS.
+- api_call_logs.created_at > action_requests.created_at.
+- audit_logs cùng action_id có created_at tăng dần.
+- fraud_reports.status = VERIFIED hoặc SUBMITTED → phải được tính trong reported_accounts.valid_report_count.
+- fraud_decisions.decision = BLOCK → action.status nên là BLOCKED.
+- reported_accounts.risk_level = CRITICAL → status = BLOCKED.
+- reported_accounts.valid_report_count >= 1.
+
+Uniqueness:
+- transactions.transaction_ref unique.
+- accounts.account_no unique.
+- billers.biller_code unique.
+- transaction_categories.category_code unique.
+- reported_accounts.account_no unique.
+- reported_customers.cif_no unique.
+
+JSON validity:
+- Mọi JSON string field parse được bằng json.loads().
+
+Nếu bất kỳ check nào fail:
+raise AssertionError(f"VALIDATION FAILED: {details}")
+
+==================================================
+README.md GENERATION
+==================================================
+
+Script cũng phải generate `./mock_data/README.md` chứa:
+
+1. Mục đích dataset, 2-3 câu.
+2. Danh sách 16 bảng + row count.
+3. Quan hệ chính dạng text ER diagram.
+4. Bảng nào dùng cho use case nào.
+5. 12 câu hỏi Text2SQL mẫu + optional SQL templates, không cần perfect production SQL:
+   - Tháng này tôi tiêu bao nhiêu cho ăn uống?
+   - 3 giao dịch gần nhất của tôi là gì?
+   - 3 giao dịch thẻ gần nhất của tôi là gì?
+   - Tôi đã chuyển cho Minh bao nhiêu tiền tháng trước?
+   - Tài khoản nào của tôi có số dư cao nhất?
+   - Tôi đã thanh toán hóa đơn điện tháng này chưa?
+   - Tôi nạp điện thoại cho số nào gần nhất?
+   - Có giao dịch nào trên 10 triệu trong 7 ngày qua không?
+   - Tôi chi bao nhiêu cho Grab trong tháng này?
+   - Lương tháng này đã vào chưa?
+   - Tài khoản nhận này có bị báo cáo lừa đảo không?
+   - Có bao nhiêu báo cáo lừa đảo cho tài khoản X?
+6. 5 API payload examples:
+   - TRANSFER
+   - PHONE_TOPUP
+   - BILL_PAYMENT
+   - CARD_LOCK
+   - CARD_LIMIT_CHANGE
+
+==================================================
+FINAL OUTPUT FORMAT
+==================================================
+
+Chỉ output code Python hoàn chỉnh cho file `seed_mock_data.py`.
+
+Không output markdown giải thích bên ngoài code.
+Không output CSV content.
+Không bỏ sót validation function.
+Không bỏ sót README generation.
+
+Script khi chạy `python seed_mock_data.py` phải:
+1. Tạo folder ./mock_data/ nếu chưa có.
+2. Overwrite generated files safely nếu đã tồn tại.
+3. Generate 16 CSV files.
+4. Generate README.md.
+5. Chạy validate_data().
+6. In summary: table name + row count + "ALL CHECKS PASSED" hoặc raise error.

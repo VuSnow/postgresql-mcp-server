@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>fraud_decisions</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
+            line-height: 1.6;
+            max-width: 960px;
+            margin: 0 auto;
+            padding: 2rem;
+            color: #1a1a1a;
+            background: #fafafa;
+        }
+        h1 {
+            color: #0d47a1;
+            border-bottom: 3px solid #0d47a1;
+            padding-bottom: 0.5rem;
+        }
+        h2 {
+            color: #1565c0;
+            margin-top: 2rem;
+            border-bottom: 1px solid #e0e0e0;
+            padding-bottom: 0.3rem;
+        }
+        h3 {
+            color: #1976d2;
+            margin-top: 1.5rem;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 1rem 0;
+            font-size: 0.9rem;
+            overflow-x: auto;
+            display: block;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 0.6rem 0.8rem;
+            text-align: left;
+        }
+        th {
+            background-color: #e3f2fd;
+            font-weight: 600;
+            color: #0d47a1;
+        }
+        tr:nth-child(even) {
+            background-color: #f5f5f5;
+        }
+        tr:hover {
+            background-color: #e8f4fd;
+        }
+        code {
+            background: #e8e8e8;
+            padding: 0.15rem 0.4rem;
+            border-radius: 3px;
+            font-size: 0.88em;
+            font-family: 'Fira Code', 'Consolas', monospace;
+        }
+        pre {
+            background: #263238;
+            color: #eeffff;
+            padding: 1rem 1.2rem;
+            border-radius: 6px;
+            overflow-x: auto;
+            font-size: 0.88rem;
+        }
+        pre code {
+            background: none;
+            padding: 0;
+            color: inherit;
+        }
+        strong {
+            color: #b71c1c;
+        }
+        ul, ol {
+            padding-left: 1.5rem;
+        }
+        li {
+            margin-bottom: 0.3rem;
+        }
+        blockquote {
+            border-left: 4px solid #1976d2;
+            margin: 1rem 0;
+            padding: 0.5rem 1rem;
+            background: #e3f2fd;
+        }
+        .container {
+            background: white;
+            padding: 2rem 3rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+<h1>fraud_decisions</h1>
+<h2>1. Mục đích bảng</h2>
+<p>Lưu trữ kết quả screening khi user chuyển tiền. Mỗi khi Guardian thực hiện transaction screening (check receiver account có bị báo cáo không), kết quả quyết định ALLOW / WARN / BLOCK được ghi vào đây.</p>
+<p><strong>Nhóm:</strong> Fraud detection / transaction screening</p>
+<h2>2. Ngữ cảnh nghiệp vụ</h2>
+<ul>
+<li>Bảng này là <strong>output</strong> của bước transaction screening trong verified workflow.</li>
+<li>Flow: User yêu cầu TRANSFER → Guardian lookup <code>reported_accounts</code> → tạo <code>fraud_decision</code> → quyết định cho phép / cảnh báo / chặn.</li>
+<li>Agent dùng bảng này để:
+    <ul>
+        <li>Ghi lại lịch sử screening decisions.</li>
+        <li>Trace tại sao 1 giao dịch bị block hoặc warn.</li>
+        <li>Audit trail cho fraud workflow.</li>
+    </ul>
+</li>
+<li>Bảng này <strong>chỉ</strong> liên quan đến action_type = TRANSFER.</li>
+<li>Nếu <code>decision = BLOCK</code> → <code>action_requests.status</code> nên là BLOCKED.</li>
+<li>Nếu <code>matched_report_count = 0</code> → chuyển tiền bình thường, risk_score = 0.</li>
+</ul>
+<h2>3. Columns</h2>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Meaning</th>
+<th>Example Values From Data</th>
+<th>Nullable</th>
+<th>Key / Relationship</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>decision_id</td>
+<td>UUID string</td>
+<td>ID quyết định</td>
+<td><code>ac365eea-48c4-514a-8d7b-15f2da68abae</code></td>
+<td>No</td>
+<td>PK</td>
+<td>-</td>
+</tr>
+<tr>
+<td>action_id</td>
+<td>UUID string</td>
+<td>Action request liên quan</td>
+<td><code>95ff56b0-cd92-5fc7-9f5a-c0c32ebbf29f</code></td>
+<td>No</td>
+<td>FK → action_requests.action_id</td>
+<td>Chỉ TRANSFER actions</td>
+</tr>
+<tr>
+<td>receiver_account_no</td>
+<td>string</td>
+<td>Số TK nhận</td>
+<td><code>2762126796</code>, <code>852986755422</code>, <code>1307240787</code></td>
+<td>No</td>
+<td>-</td>
+<td>TK người nhận tiền</td>
+</tr>
+<tr>
+<td>receiver_bank_code</td>
+<td>string</td>
+<td>Bank code nhận</td>
+<td><code>VIB</code>, <code>TPB</code>, <code>MB</code>, <code>CTG</code>, <code>TCB</code>, <code>STB</code>, <code>BIDV</code>, <code>ACB</code>, <code>VCB</code></td>
+<td>No</td>
+<td>-</td>
+<td>Từ BANK_MAP</td>
+</tr>
+<tr>
+<td>matched_report_count</td>
+<td>integer</td>
+<td>Số report match TK nhận</td>
+<td><code>0</code></td>
+<td>No</td>
+<td>-</td>
+<td>0 = không có report nào</td>
+</tr>
+<tr>
+<td>risk_score</td>
+<td>numeric</td>
+<td>Điểm risk (0.0-1.0)</td>
+<td><code>0.0</code></td>
+<td>No</td>
+<td>-</td>
+<td>Từ reported_accounts hoặc 0 nếu không match</td>
+</tr>
+<tr>
+<td>risk_level</td>
+<td>enum string</td>
+<td>Mức risk</td>
+<td><code>NONE</code>, <code>LOW</code>, <code>MEDIUM</code>, <code>HIGH</code>, <code>CRITICAL</code></td>
+<td>No</td>
+<td>-</td>
+<td>Quyết định mức cảnh báo</td>
+</tr>
+<tr>
+<td>decision</td>
+<td>enum string</td>
+<td>Quyết định screening</td>
+<td><code>ALLOW</code>, <code>WARN</code>, <code>BLOCK</code></td>
+<td>No</td>
+<td>-</td>
+<td>Output chính</td>
+</tr>
+<tr>
+<td>reason_codes</td>
+<td>JSON string</td>
+<td>Lý do quyết định</td>
+<td><code>[]</code>, <code>["HIGH_RISK_ACTION"]</code></td>
+<td>No</td>
+<td>-</td>
+<td>Array các reason codes</td>
+</tr>
+<tr>
+<td>created_at</td>
+<td>timestamp string</td>
+<td>Thời điểm tạo</td>
+<td><code>2026-04-04 07:55:53</code>, <code>2026-05-06 13:54:36</code></td>
+<td>No</td>
+<td>-</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<h2>4. Important Values / Enums</h2>
+<h3>decision</h3>
+<table>
+<thead>
+<tr><th>Value</th><th>Meaning</th><th>User Experience</th></tr>
+</thead>
+<tbody>
+<tr><td>ALLOW</td><td>Cho phép chuyển</td><td>Tiếp tục flow bình thường</td></tr>
+<tr><td>WARN</td><td>Cảnh báo</td><td>Hiển thị warning cho user, yêu cầu xác nhận thêm</td></tr>
+<tr><td>BLOCK</td><td>Chặn</td><td>Không cho chuyển tiền, thông báo lý do</td></tr>
+</tbody>
+</table>
+<h3>risk_level</h3>
+<table>
+<thead>
+<tr><th>Value</th><th>Meaning</th><th>Trigger</th></tr>
+</thead>
+<tbody>
+<tr><td>NONE</td><td>Không có risk</td><td>matched_report_count = 0</td></tr>
+<tr><td>LOW</td><td>Risk thấp</td><td>reported_accounts.risk_level = LOW</td></tr>
+<tr><td>MEDIUM</td><td>Risk trung bình</td><td>reported_accounts.risk_level = MEDIUM</td></tr>
+<tr><td>HIGH</td><td>Risk cao</td><td>reported_accounts.risk_level = HIGH</td></tr>
+<tr><td>CRITICAL</td><td>Risk rất cao</td><td>reported_accounts.risk_level = CRITICAL</td></tr>
+</tbody>
+</table>
+<h3>reason_codes (common values)</h3>
+<table>
+<thead>
+<tr><th>Value</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td>REPORTED_ACCOUNT</td><td>TK nhận đã bị báo cáo lừa đảo</td></tr>
+<tr><td>HIGH_RISK_SCORE</td><td>Điểm risk cao</td></tr>
+<tr><td>MULTIPLE_REPORTERS</td><td>Nhiều người báo cáo TK này</td></tr>
+<tr><td>HIGH_RISK_ACTION</td><td>Giao dịch có risk cao từ action_requests</td></tr>
+<tr><td>CRITICAL_ACCOUNT</td><td>TK nhận ở mức CRITICAL</td></tr>
+</tbody>
+</table>
+<h3>reason_codes JSON structure</h3>
+<pre><code>["REPORTED_ACCOUNT", "HIGH_RISK_SCORE", "MULTIPLE_REPORTERS"]</code></pre>
+<h2>5. Relationships</h2>
+<ul>
+<li><code>fraud_decisions.action_id</code> → <code>action_requests.action_id</code> (chỉ TRANSFER)</li>
+<li><code>fraud_decisions.receiver_account_no</code> có thể match <code>reported_accounts.account_no</code></li>
+<li>Mỗi TRANSFER action có tối đa 1 fraud_decision</li>
+</ul>
+<h2>6. Simple Usage Examples</h2>
+<h3>Xem kết quả screening cho 1 action</h3>
+<pre><code>SELECT decision_id, receiver_account_no, receiver_bank_code,
+       matched_report_count, risk_level, decision, reason_codes
+FROM fraud_decisions
+WHERE action_id = '95ff56b0-cd92-5fc7-9f5a-c0c32ebbf29f';</code></pre>
+<h3>Danh sách giao dịch bị BLOCK</h3>
+<pre><code>SELECT fd.decision_id, fd.receiver_account_no, fd.receiver_bank_code,
+       fd.risk_score, fd.reason_codes, ar.user_text
+FROM fraud_decisions fd
+JOIN action_requests ar ON fd.action_id = ar.action_id
+WHERE fd.decision = 'BLOCK'
+ORDER BY fd.created_at DESC;</code></pre>
+<h3>Đếm decision theo loại</h3>
+<pre><code>SELECT decision, COUNT(*) AS total
+FROM fraud_decisions
+GROUP BY decision;</code></pre>
+<h3>Tìm screening có match report</h3>
+<pre><code>SELECT decision_id, receiver_account_no, receiver_bank_code,
+       matched_report_count, risk_score, decision
+FROM fraud_decisions
+WHERE matched_report_count &gt; 0
+ORDER BY risk_score DESC;</code></pre>
+</div>
+</body>
+</html>

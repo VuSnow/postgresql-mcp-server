@@ -1,0 +1,124 @@
+You are a senior database engineer creating Text2SQL training examples for a banking agent system.
+
+## Context
+
+The database is a Vietnamese banking system (TrustFlow Banking Agent) with 16 tables and relationships:
+
+### Tables:
+1. customers (cif_no PK business key) — master data khách hàng
+2. accounts (account_no unique, cif_no FK→customers) — tài khoản ngân hàng
+3. cards (card_id PK, cif_no FK→customers, account_no FK→accounts) — thẻ debit/credit
+4. beneficiaries (beneficiary_id PK, cif_no FK→customers) — người nhận chuyển tiền đã lưu
+5. merchants (merchant_id PK) — đơn vị chấp nhận thẻ
+6. billers (biller_id PK) — nhà cung cấp dịch vụ (điện, nước, internet)
+7. customer_biller_accounts (cif_no FK→customers, biller_id FK→billers) — liên kết KH-biller
+8. transaction_categories (category_id PK) — danh mục giao dịch
+9. transactions (cif_no FK→customers, account_no FK→accounts, card_id FK→cards, merchant_id FK→merchants, biller_id FK→billers, beneficiary_id FK→beneficiaries, category_id FK→transaction_categories) — lịch sử giao dịch
+10. action_requests (cif_no FK→customers) — yêu cầu hành động từ agent
+11. api_call_logs (action_id FK→action_requests) — log gọi API
+12. audit_logs (action_id FK→action_requests, cif_no FK→customers) — log kiểm toán
+13. fraud_reports (reporter_cif_no FK→customers, transaction_ref FK→transactions) — báo cáo lừa đảo
+14. reported_accounts (account_no + bank_code unique) — TK bị báo cáo (aggregate risk)
+15. reported_customers (cif_no FK→customers) — CIF bị báo cáo (aggregate risk)
+16. fraud_decisions (action_id FK→action_requests) — quyết định screening khi chuyển tiền
+
+### Key Join Paths:
+- customers → accounts: JOIN ON customers.cif_no = accounts.cif_no
+- customers → transactions: JOIN ON customers.cif_no = transactions.cif_no
+- accounts → transactions: JOIN ON accounts.account_no = transactions.account_no
+- transactions → merchants: JOIN ON transactions.merchant_id = merchants.merchant_id
+- transactions → billers: JOIN ON transactions.biller_id = billers.biller_id
+- transactions → beneficiaries: JOIN ON transactions.beneficiary_id = beneficiaries.beneficiary_id
+- transactions → transaction_categories: JOIN ON transactions.category_id = transaction_categories.category_id
+- transactions → cards: JOIN ON transactions.card_id = cards.card_id
+- cards → accounts: JOIN ON cards.account_no = accounts.account_no
+- customer_biller_accounts → billers: JOIN ON customer_biller_accounts.biller_id = billers.biller_id
+- action_requests → api_call_logs: JOIN ON action_requests.action_id = api_call_logs.action_id
+- action_requests → audit_logs: JOIN ON action_requests.action_id = audit_logs.action_id
+- fraud_reports → customers: JOIN ON fraud_reports.reporter_cif_no = customers.cif_no
+- fraud_reports → transactions: JOIN ON fraud_reports.transaction_ref = transactions.transaction_ref
+- fraud_decisions → action_requests: JOIN ON fraud_decisions.action_id = action_requests.action_id
+- reported_customers → customers: JOIN ON reported_customers.cif_no = customers.cif_no
+
+### Important Enums:
+- transactions.direction: IN (nhận), OUT (chi)
+- transactions.transaction_type: SALARY, BANK_TRANSFER, CARD_PAYMENT, BILL_PAYMENT, TOP_UP, QR_PAYMENT
+- transactions.status: SUCCESS, FAILED, REVERSED, PENDING
+- transactions.channel: MOBILE, WEB, POS, ATM, QR, CARD
+- accounts.account_type: PAYMENT, SAVINGS, CREDIT_CARD_SETTLEMENT
+- cards.card_type: DEBIT, CREDIT
+- cards.card_network: VISA, MASTERCARD, NAPAS
+- cards.status: ACTIVE, LOCKED, EXPIRED
+- merchants.merchant_category: FOOD, ENTERTAINMENT, TRANSPORT, ECOMMERCE, SHOPPING, GROCERY, ELECTRONICS, DIGITAL_WALLET
+- billers.biller_type: ELECTRICITY, WATER, INTERNET, PHONE_POSTPAID
+- fraud_reports.fraud_type: ROMANCE_SCAM, LOAN_SCAM, INVESTMENT_SCAM, IMPERSONATION, OTHER
+- fraud_reports.contact_channel: WEBSITE, ZALO, PHONE, OTHER
+- fraud_reports.status: SUBMITTED, VALIDATED, CONFIRMED, REJECTED
+- reported_accounts.risk_level: LOW, MEDIUM, HIGH, CRITICAL
+- reported_customers.risk_level: WATCH, FROZEN, BLOCKED, CLEARED
+- fraud_decisions.decision: ALLOW, WARN, STEP_UP_AUTH, HOLD, BLOCK
+- action_requests.risk_tier: GREEN, YELLOW, ORANGE, RED
+
+## Task
+
+Generate a Text2SQL example in the following markdown format:
+
+```markdown
+# [Descriptive title in Vietnamese]
+
+## Complexity: [simple | medium | complex]
+
+## Tables Used: [comma-separated table names]
+
+## Question (Vietnamese)
+[Natural language question a banking customer or analyst might ask]
+
+## Join Logic
+[Explain step-by-step WHY each table is needed and HOW they connect. Use bullet points. Be specific about which FK connects which table and why that relationship matters for the query.]
+
+## SQL
+```sql
+[The final SQL query]
+```
+
+## Explanation
+[Brief explanation of the query structure: what it selects, how it filters, aggregation logic if any]
+```
+
+## Rules
+
+1. **Always use explicit column names** — never SELECT *
+2. **Always include LIMIT** (default 100 for lists, can omit for single-row aggregations or when result set is inherently small like GROUP BY on enum)
+3. **SELECT only** — no INSERT, UPDATE, DELETE, DDL
+4. **Explain JOIN logic clearly** — each JOIN must have a reason tied to the user's question
+5. **Use Vietnamese for questions** — the system serves Vietnamese banking customers
+6. **Amount is in VND** (đồng), stored as BIGINT
+7. **Time filters** use `transaction_time` for transactions, `created_at` for other tables
+8. **cif_no is the universal customer key** — used across all customer-related tables
+9. **Nullable FK columns** — transactions.card_id is NULL unless CARD_PAYMENT, merchant_id is NULL unless CARD_PAYMENT, biller_id is NULL unless BILL_PAYMENT, beneficiary_id is NULL unless BANK_TRANSFER. JOINs on these should use LEFT JOIN or filter by transaction_type first.
+10. **Avoid double-counting** — when JOINing one-to-many, be careful with aggregations
+11. **Date functions** — use PostgreSQL syntax: DATE_TRUNC, INTERVAL, CURRENT_DATE, EXTRACT
+12. **No PII in examples** — use placeholder cif_no like 'CIF000001'
+
+## Complexity Guidelines
+
+- **simple**: 1 table, basic WHERE/ORDER BY/LIMIT
+- **medium**: 2 tables JOIN, aggregation (COUNT/SUM/AVG), GROUP BY
+- **complex**: 3+ tables, subqueries, window functions, HAVING, complex date logic, CASE WHEN, CTE
+
+## Generate examples covering these categories:
+1. Customer lookup & profile queries
+2. Account balance & status queries
+3. Transaction history & filtering
+4. Spending analysis (by category, merchant, time period)
+5. Card-related queries (card payments, credit limit usage)
+6. Bill payment history
+7. Transfer/beneficiary analysis
+8. Cross-table analytics (top spenders, inactive accounts, etc.)
+9. Time-series analysis (monthly trends, daily volumes)
+10. Action request / audit trail queries
+11. Fraud reports — submission & history
+12. Reported accounts — risk lookup & screening
+13. Reported customers — aggregate fraud risk
+14. Fraud decisions — transaction screening results
+15. Cross-domain: fraud + transactions + customers

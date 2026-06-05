@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>beneficiaries</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
+            line-height: 1.6;
+            max-width: 960px;
+            margin: 0 auto;
+            padding: 2rem;
+            color: #1a1a1a;
+            background: #fafafa;
+        }
+        h1 {
+            color: #0d47a1;
+            border-bottom: 3px solid #0d47a1;
+            padding-bottom: 0.5rem;
+        }
+        h2 {
+            color: #1565c0;
+            margin-top: 2rem;
+            border-bottom: 1px solid #e0e0e0;
+            padding-bottom: 0.3rem;
+        }
+        h3 {
+            color: #1976d2;
+            margin-top: 1.5rem;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 1rem 0;
+            font-size: 0.9rem;
+            overflow-x: auto;
+            display: block;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 0.6rem 0.8rem;
+            text-align: left;
+        }
+        th {
+            background-color: #e3f2fd;
+            font-weight: 600;
+            color: #0d47a1;
+        }
+        tr:nth-child(even) {
+            background-color: #f5f5f5;
+        }
+        tr:hover {
+            background-color: #e8f4fd;
+        }
+        code {
+            background: #e8e8e8;
+            padding: 0.15rem 0.4rem;
+            border-radius: 3px;
+            font-size: 0.88em;
+            font-family: 'Fira Code', 'Consolas', monospace;
+        }
+        pre {
+            background: #263238;
+            color: #eeffff;
+            padding: 1rem 1.2rem;
+            border-radius: 6px;
+            overflow-x: auto;
+            font-size: 0.88rem;
+        }
+        pre code {
+            background: none;
+            padding: 0;
+            color: inherit;
+        }
+        strong {
+            color: #b71c1c;
+        }
+        ul, ol {
+            padding-left: 1.5rem;
+        }
+        li {
+            margin-bottom: 0.3rem;
+        }
+        blockquote {
+            border-left: 4px solid #1976d2;
+            margin: 1rem 0;
+            padding: 0.5rem 1rem;
+            background: #e3f2fd;
+        }
+        .container {
+            background: white;
+            padding: 2rem 3rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+<h1>beneficiaries</h1>
+<h2>1. Mục đích bảng</h2>
+<p>Lưu danh sách người nhận chuyển tiền đã lưu của khách hàng. Agent dùng bảng này để resolve người nhận khi user yêu cầu chuyển tiền bằng tên gọi, nickname, hoặc thông tin không đầy đủ.</p>
+<p><strong>Nhóm:</strong> Master/reference data</p>
+<h2>2. Ngữ cảnh nghiệp vụ</h2>
+<ul>
+<li>Bảng này tồn tại để agent có thể "nhận diện" người nhận khi user nói "chuyển cho Bình" hoặc "chuyển tiền nhà".</li>
+<li>Agent dùng bảng này để:</li>
+<li>Resolve <code>beneficiary_account_no</code>, <code>beneficiary_bank_code</code> từ tên/nickname user cung cấp.</li>
+<li>Tạo API payload cho <code>external_transfer_api</code>.</li>
+<li>Xác nhận lại với user: "Bạn muốn chuyển cho Nguyen Ngoc Binh - Sacombank?".</li>
+<li>Phục vụ use case: chuyển tiền (TRANSFER) — bước recipient resolution.</li>
+<li>Bảng này <strong>không phải</strong> danh bạ toàn hệ thống. Mỗi khách hàng có danh sách riêng (filter bằng <code>cif_no</code>).</li>
+<li><code>is_saved = True</code> nghĩa là người nhận đã được lưu, agent ưu tiên match từ đây.</li>
+<li><code>last_used_at</code> giúp agent ưu tiên người nhận gần đây nhất khi có nhiều kết quả trùng.</li>
+</ul>
+<h2>3. Columns</h2>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Meaning</th>
+<th>Example Values From Data</th>
+<th>Nullable</th>
+<th>Key / Relationship</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>beneficiary_id</td>
+<td>UUID string</td>
+<td>ID kỹ thuật người nhận</td>
+<td><code>4ac78c04-ea5a-5990-973d-52f58e78f498</code></td>
+<td>No</td>
+<td>PK</td>
+<td>Dùng làm FK trong transactions</td>
+</tr>
+<tr>
+<td>cif_no</td>
+<td>string</td>
+<td>Mã khách hàng sở hữu danh sách</td>
+<td><code>CIF000001</code>, <code>CIF000002</code></td>
+<td>No</td>
+<td>FK → customers.cif_no</td>
+<td>Mỗi customer có list riêng</td>
+</tr>
+<tr>
+<td>beneficiary_name</td>
+<td>string</td>
+<td>Tên người nhận</td>
+<td><code>Bui Duc Tuan</code>, <code>Nguyen Ngoc Binh</code>, <code>Dang Duc Em</code></td>
+<td>No</td>
+<td>-</td>
+<td>Dùng để match khi user nói tên</td>
+</tr>
+<tr>
+<td>beneficiary_account_no</td>
+<td>string</td>
+<td>Số tài khoản người nhận</td>
+<td><code>9409610556</code>, <code>805892583206</code>, <code>179086416862</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>Đưa vào API payload <code>to_account_no</code></td>
+</tr>
+<tr>
+<td>beneficiary_bank_code</td>
+<td>string</td>
+<td>Mã ngân hàng người nhận</td>
+<td><code>ACB</code>, <code>STB</code>, <code>BIDV</code>, <code>CTG</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>Đưa vào API payload <code>to_bank_code</code></td>
+</tr>
+<tr>
+<td>beneficiary_bank_name</td>
+<td>string</td>
+<td>Tên ngân hàng người nhận</td>
+<td><code>ACB</code>, <code>Sacombank</code>, <code>BIDV</code>, <code>VietinBank</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>Hiển thị cho user xác nhận</td>
+</tr>
+<tr>
+<td>nickname</td>
+<td>string</td>
+<td>Tên gọi tắt/alias</td>
+<td><code>Tien nha</code>, <code>Tien hoc</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>User có thể dùng nickname thay vì tên thật</td>
+</tr>
+<tr>
+<td>is_saved</td>
+<td>boolean</td>
+<td>Đã lưu vào danh sách</td>
+<td><code>True</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>Agent ưu tiên người nhận đã saved</td>
+</tr>
+<tr>
+<td>last_used_at</td>
+<td>timestamp string</td>
+<td>Lần cuối sử dụng</td>
+<td><code>2026-02-22 20:57:58</code>, <code>2026-01-08 01:53:20</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>Dùng để rank kết quả khi có nhiều match</td>
+</tr>
+<tr>
+<td>created_at</td>
+<td>timestamp string</td>
+<td>Thời điểm lưu</td>
+<td><code>2025-12-22 15:25:56</code>, <code>2024-08-24 03:53:39</code></td>
+<td>Yes</td>
+<td>-</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<h2>4. Important Values / Enums</h2>
+<p>Không có enum quan trọng.</p>
+<p>Lưu ý: <code>beneficiary_bank_code</code> không phải enum cố định — có thể là bất kỳ mã ngân hàng nào (ACB, STB, BIDV, CTG, VIB, TCB, TPB, MB...).</p>
+<h2>5. Relationships</h2>
+<ul>
+<li><code>beneficiaries.cif_no</code> → <code>customers.cif_no</code></li>
+<li><code>beneficiaries.beneficiary_id</code> được tham chiếu bởi <code>transactions.beneficiary_id</code></li>
+</ul>
+<h2>6. Simple Usage Examples</h2>
+<h3>Tìm người nhận theo tên (fuzzy match)</h3>
+<div class="codehilite"><pre><span></span><code><span class="k">SELECT</span><span class="w"> </span><span class="n">beneficiary_id</span><span class="p">,</span><span class="w"> </span><span class="n">beneficiary_name</span><span class="p">,</span><span class="w"> </span><span class="n">beneficiary_account_no</span><span class="p">,</span><span class="w"> </span><span class="n">beneficiary_bank_name</span><span class="p">,</span><span class="w"> </span><span class="n">nickname</span>
+<span class="k">FROM</span><span class="w"> </span><span class="n">beneficiaries</span>
+<span class="k">WHERE</span><span class="w"> </span><span class="n">cif_no</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;CIF000001&#39;</span><span class="w"> </span><span class="k">AND</span><span class="w"> </span><span class="n">beneficiary_name</span><span class="w"> </span><span class="k">ILIKE</span><span class="w"> </span><span class="s1">&#39;%Binh%&#39;</span><span class="p">;</span>
+</code></pre></div>
+
+<p>Dùng khi user nói "chuyển cho Bình" — agent tìm trong danh sách đã lưu.</p>
+<h3>Tìm người nhận theo nickname</h3>
+<div class="codehilite"><pre><span></span><code><span class="k">SELECT</span><span class="w"> </span><span class="n">beneficiary_id</span><span class="p">,</span><span class="w"> </span><span class="n">beneficiary_name</span><span class="p">,</span><span class="w"> </span><span class="n">beneficiary_account_no</span><span class="p">,</span><span class="w"> </span><span class="n">beneficiary_bank_code</span>
+<span class="k">FROM</span><span class="w"> </span><span class="n">beneficiaries</span>
+<span class="k">WHERE</span><span class="w"> </span><span class="n">cif_no</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;CIF000001&#39;</span><span class="w"> </span><span class="k">AND</span><span class="w"> </span><span class="n">nickname</span><span class="w"> </span><span class="k">ILIKE</span><span class="w"> </span><span class="s1">&#39;%nha%&#39;</span><span class="p">;</span>
+</code></pre></div>
+
+<p>Dùng khi user nói "chuyển tiền nhà" — agent match nickname.</p>
+<h3>Lấy người nhận gần đây nhất</h3>
+<div class="codehilite"><pre><span></span><code><span class="k">SELECT</span><span class="w"> </span><span class="n">beneficiary_id</span><span class="p">,</span><span class="w"> </span><span class="n">beneficiary_name</span><span class="p">,</span><span class="w"> </span><span class="n">beneficiary_account_no</span><span class="p">,</span><span class="w"> </span><span class="n">beneficiary_bank_name</span>
+<span class="k">FROM</span><span class="w"> </span><span class="n">beneficiaries</span>
+<span class="k">WHERE</span><span class="w"> </span><span class="n">cif_no</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;CIF000001&#39;</span><span class="w"> </span><span class="k">AND</span><span class="w"> </span><span class="n">is_saved</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">True</span>
+<span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">last_used_at</span><span class="w"> </span><span class="k">DESC</span><span class="w"> </span><span class="n">NULLS</span><span class="w"> </span><span class="k">LAST</span>
+<span class="k">LIMIT</span><span class="w"> </span><span class="mi">5</span><span class="p">;</span>
+</code></pre></div>
+
+<p>Dùng khi có nhiều kết quả — ưu tiên người nhận sử dụng gần nhất.</p>
+<h3>Lấy đầy đủ thông tin để tạo API payload</h3>
+<div class="codehilite"><pre><span></span><code><span class="k">SELECT</span><span class="w"> </span><span class="n">beneficiary_name</span><span class="p">,</span><span class="w"> </span><span class="n">beneficiary_account_no</span><span class="p">,</span><span class="w"> </span><span class="n">beneficiary_bank_code</span>
+<span class="k">FROM</span><span class="w"> </span><span class="n">beneficiaries</span>
+<span class="k">WHERE</span><span class="w"> </span><span class="n">beneficiary_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;8ce5b028-4d19-5ea3-8316-15b336b9c8fa&#39;</span><span class="p">;</span>
+</code></pre></div>
+
+<p>Dùng sau khi đã resolve beneficiary_id — lấy thông tin đưa vào <code>external_transfer_api</code> payload.</p>
+</div>
+</body>
+</html>
